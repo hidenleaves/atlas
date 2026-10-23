@@ -79,6 +79,17 @@
 验证：本地 `npm test` 全过，`npm run prompt:check` 无 diff。
 首次 GitHub Actions 运行：`test / completed / success / 1e0a8b1`。
 
+## 第 7 轮 · 22:39
+
+主题：README / 使用说明。
+
+- 重写仓库 README：快速开始、截图、指令表、AI 配置、模块图、测试、符号来源/许可、已知限制、路线图。
+- 明确哪些指令走内置规则、哪些需要模型。
+- 加 CI badge、`npm test` / `npm run prompt:check` 用法。
+- 说明 `file://` 打开、网络诊断、localStorage 存储和教学用途边界。
+
+验证：`npm test` 全过，`npm run prompt:check` 无 diff。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -87,7 +98,7 @@
 4. 星三角 / 降压启动模板（主电路组合已由第 5 轮覆盖正反转）。
 5. UI：错误定位、空状态引导、移动端。
 6. ~~测试与 CI：GitHub Actions 跑 route / api / prompt 测试。~~（第 6 轮完成）
-7. README / 使用说明。
+7. ~~README / 使用说明。~~（第 7 轮完成）
 8. 参考开源：QElectroTech（符号/连线）、OpenPLC/Beremiz（IEC 61131-3）。
 9. `wireNodes` 侧向引出：避免母线引出线穿过同列其他引脚。
 10. 端子落点优化：目前放节点首引脚，后续可放到母线端点并自动避让元件。
