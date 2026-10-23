@@ -4,6 +4,18 @@
 - 目标结束：2026-10-24 01:35 +0800
 - 规则：每轮一个主题；跑完测试再 commit + push；轮次之间用 ScheduleWakeup 继续。
 
+## Session 总结（19:35 起，20 轮）
+
+- 20 轮迭代，每轮先跑测试再 commit + push；抽查的 GitHub Actions 全部成功。
+- 提示词/人设卡：单一事实源 `js/prompt.js`，8 个工具 schema 收紧，`draw_template` few-shot 示例，`提示词.md` 自动生成。
+- 路由 v2：否定作用域、角色判定、复合指令、前置/后置属性；route 55 条 + fuzz 102 条组合回归。
+- 画板可靠性：`draw_plan` 原子回滚、`align` 预排序、母线避让、端子引线、电源回路闭合检查。
+- 模板：点动 / 起保停 / 互锁 / 正反转 / 正反转+主电路 / 两地控制；路由、对话、模板库共用 `drawTemplate`。
+- UX：对话快捷指令、问题定位高亮、窄屏面板、focus-visible、reduced-motion。
+- 工程：`npm test` + GitHub Actions；README、提示词文档、优化日志同步。
+- 回归：route 55 / fuzz 102 / api 42 / template 8 / prompt 37。
+- 剩余大项：星三角（需要 6 端子电机 + 侧向走线）、`wireNodes` 侧向引出、主电路模板参数化、重复 `type:key`、复合指令边界。
+
 ## 第 1 轮 · 19:35
 
 主题：人设卡 + 提示词单一事实源 + 工具 schema 收紧。
@@ -231,6 +243,17 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：prompt 37/37、route 55/55、fuzz 102/102、api 42/42、template 8/8、`npm test` 全过。
 
+## 第 20 轮 · 00:04
+
+主题：收尾打磨。
+
+- 对话快捷指令从 6 个扩到 8 个：增加“正反转+主电路”“两地控制”。
+- README 补一键模板、快捷指令、回归规模和优化日志链接。
+- 优化日志补 session 总结与剩余 backlog。
+- 收尾测试覆盖新 chip 的端到端行为。
+
+验证：`npm test` 全过；真页面点击“正反转+主电路”出 26 元件，快捷区无横向溢出。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -255,6 +278,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 20. ~~属性前置 + explicit 传播。~~（第 17 轮完成）
 21. ~~端子落点优化（引线到引脚外侧）。~~（第 18 轮完成）
 22. ~~draw_template few-shot 示例。~~（第 19 轮完成）
+23. ~~收尾打磨：8 个快捷指令 + README/会话总结。~~（第 20 轮完成）
 
 ## 参考
 
