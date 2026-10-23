@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>IEC 符号总览</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  body { margin: 0; padding: 18px 22px; background: #F4F4EE; font-family: var(--sans); }
+  h1 { font-size: 14px; font-weight: 600; margin: 0 0 4px; color: #1A1C1F; }
+  .sub { font-size: 11px; color: #7A7F87; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .cell {
+    background: #fff; border: 1px solid #E2E2DA; border-radius: 6px;
+    padding: 6px 6px 4px; text-align: center;
+  }
+  .cell svg { display: block; margin: 0 auto; overflow: visible;
+    width: auto !important; height: auto !important; }
+  .nm { font-size: 10px; color: #4A4F57; margin-top: 2px; font-family: var(--mono); }
+  .ref { font-size: 8.5px; color: #A8ADB4; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<h1>元件符号总览</h1>
+<div class="sub">共 <b id="cnt">0</b> 个符号。几何全部取自 QElectroTech 官方符号库，标准为 IEC 60617（等同采用 GB∕T 4728），下方为各符号的标准编号。<br>画板与图集里用的就是这一套数据，不是手绘近似。</div>
+<div class="grid" id="grid"></div>
+
+<script src="js/symgeo.js"></script>
+<script src="js/symlib.js"></script>
+<script>
+(function () {
+  var G = window.SYMGEO, L = window.SYMLIB;
+  var H = 46;
+  var grid = document.getElementById('grid');
+  var keys = Object.keys(G);
+  document.getElementById('cnt').textContent = keys.length;
+  keys.forEach(function (k) {
+    var g = G[k];
+    var m = L.draw(k, 0, 0, H, {});
+    var w = Math.max(40, L.widthOf(k, H) + 16);
+    var cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.innerHTML =
+      '<svg class="sheet-svg" width="' + Math.round(w) + '" height="' + (H + 12) + '" viewBox="' +
+      (-w / 2) + ' -6 ' + w + ' ' + (H + 12) + '">' + m + '</svg>' +
+      '<div class="nm">' + k + '</div>' +
+      '<div class="ref">' + g.ref + '</div>';
+    grid.appendChild(cell);
+  });
+})();
+</script>
+</body>
+</html>

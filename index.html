@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>控制电路图库 · 继电器接触器控制系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
+      <rect width="26" height="26" rx="7" fill="#2447C9"/>
+      <path d="M7 5v5M13 5v5M19 5v5M7 16v5M13 16v5M19 16v5" stroke="#FFFFFF" stroke-width="1.6" opacity=".72" fill="none"/>
+      <rect x="5" y="10" width="16" height="6" rx="1.8" fill="#FFFFFF"/>
+    </svg>
+    <span class="brand-name">控制电路图库</span>
+  </div>
+
+  <div class="mode-switch">
+    <button class="mode-btn active" data-mode="atlas">图集</button>
+    <button class="mode-btn" data-mode="draw">画板</button>
+  </div>
+
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <circle cx="6.2" cy="6.2" r="4.4" stroke="#9BA0A7" stroke-width="1.4"/>
+      <path d="M9.6 9.6L12.4 12.4" stroke="#9BA0A7" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+    <input id="searchInput" type="search" placeholder="搜索电路名称、图号或代号" autocomplete="off" spellcheck="false">
+  </div>
+
+  <div class="top-actions">
+    <button class="icon-btn" id="btnPrint" title="打印当前图纸">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M4 5.6V2.2h7v3.4" stroke="#4A4F57" stroke-width="1.3" stroke-linejoin="round"/>
+        <rect x="2" y="5.6" width="11" height="5.4" rx="1.2" stroke="#4A4F57" stroke-width="1.3"/>
+        <path d="M4 9.2h7v3.6H4z" stroke="#4A4F57" stroke-width="1.3" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="btnExportTop" title="导出 SVG">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M7.5 1.8v7.4M4.6 6.4l2.9 2.8 2.9-2.8" stroke="#4A4F57" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M2.4 11v1.6h10.2V11" stroke="#4A4F57" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div class="avatar">王</div>
+  </div>
+</header>
+
+<!-- ================= 图集 ================= -->
+<main class="app" id="atlasApp">
+
+  <aside class="sidebar">
+    <div class="side-scroll">
+      <div class="sec-label">电路目录</div>
+      <nav id="catalog"></nav>
+
+      <div class="side-div"></div>
+      <div class="sec-label">元件代号</div>
+      <div class="codes" id="codes"></div>
+    </div>
+
+    <div class="progress-card">
+      <div class="pc-title">第 1 章 · 图集进度</div>
+      <div class="pc-bar"><i id="pcFill"></i></div>
+      <div class="pc-meta" id="pcMeta"></div>
+    </div>
+  </aside>
+
+  <section class="stage">
+    <div class="stage-head">
+      <div class="stage-head-left">
+        <div class="eyebrow" id="eyebrow"></div>
+        <h1 class="title" id="title"></h1>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div class="stage-head-right">
+        <button class="btn ghost" id="btnTpl">照着这张画</button>
+        <button class="btn ghost" id="btnExport">导出 SVG</button>
+        <button class="btn primary" id="btnDemo">动作演示</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="seg" id="segView">
+        <button class="seg-item active" data-view="all">全部</button>
+        <button class="seg-item" data-view="main">主电路</button>
+        <button class="seg-item" data-view="ctrl">控制电路</button>
+      </div>
+      <div class="tool-right">
+        <span class="chip" id="statusChip"><i class="dot"></i><span id="statusText">电动机 停转</span></span>
+        <div class="zoom">
+          <button class="zoom-btn" id="zoomOut" aria-label="缩小">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="#3F444B" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+          <span class="zoom-val" id="zoomVal">100%</span>
+          <button class="zoom-btn" id="zoomIn" aria-label="放大">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6M5 2v6" stroke="#3F444B" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <button class="icon-btn boxed" id="btnFit" title="适应画布">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M1.6 5V1.8h3.2M9.2 1.8h3.2V5M12.4 9v3.2H9.2M4.8 12.2H1.6V9"
+                  stroke="#4A4F57" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <div class="sheet-body" id="sheetInner"></div>
+      <div class="sheet-cap">
+        <span id="capLeft"></span>
+        <span id="capRight"></span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="inspector">
+    <div class="insp-scroll">
+      <div class="sec-label">动作过程</div>
+      <ol class="steps" id="steps"></ol>
+
+      <div class="callout" id="callout"></div>
+
+      <div class="sec-label">同章节电路</div>
+      <ul class="related" id="related"></ul>
+    </div>
+
+    <div class="insp-foot">
+      <div class="sec-label">图纸信息</div>
+      <div class="info" id="info"></div>
+    </div>
+  </aside>
+
+</main>
+
+<!-- ================= 画板 ================= -->
+<main class="app" id="edApp" hidden>
+
+  <aside class="sidebar">
+    <div class="side-scroll">
+      <div class="sec-label">我的图纸</div>
+      <nav id="docList"></nav>
+
+      <div class="side-div"></div>
+      <div class="sec-label">元件库</div>
+      <div id="libList"></div>
+    </div>
+
+    <div class="progress-card">
+      <button class="btn primary wide" id="btnNewDoc">＋ 新建空白图纸</button>
+      <button class="btn ghost wide" id="btnImport">导入 .json</button>
+      <input type="file" id="edImportFile" accept=".json,application/json" hidden>
+    </div>
+  </aside>
+
+  <section class="stage">
+    <div class="stage-head">
+      <div class="stage-head-left">
+        <div class="eyebrow" id="edEyebrow"></div>
+        <h1 class="title" id="edTitle"></h1>
+      </div>
+      <div class="stage-head-right">
+        <button class="btn ghost" id="edExportJson">导出 .json</button>
+        <button class="btn ghost" id="edExport">导出 SVG</button>
+        <button class="btn primary" id="edSim">代号联动</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="tool-left">
+        <button class="icon-btn boxed" id="edUndo" title="撤销 Ctrl+Z">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M4.2 4.4H8.6a3.2 3.2 0 010 6.4H5.2" stroke="#4A4F57" stroke-width="1.3" stroke-linecap="round"/>
+            <path d="M6 2.2L3.6 4.4 6 6.6" stroke="#4A4F57" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="icon-btn boxed" id="edRedo" title="重做 Ctrl+Shift+Z">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M9.8 4.4H5.4a3.2 3.2 0 000 6.4h3.4" stroke="#4A4F57" stroke-width="1.3" stroke-linecap="round"/>
+            <path d="M8 2.2l2.4 2.2L8 6.6" stroke="#4A4F57" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="zoom">
+          <button class="zoom-btn" id="edZoomOut" aria-label="缩小">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6" stroke="#3F444B" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+          <span class="zoom-val" id="edZoomVal">100%</span>
+          <button class="zoom-btn" id="edZoomIn" aria-label="放大">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5h6M5 2v6" stroke="#3F444B" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <button class="icon-btn boxed" id="edFit" title="适应画布">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M1.6 5V1.8h3.2M9.2 1.8h3.2V5M12.4 9v3.2H9.2M4.8 12.2H1.6V9"
+                  stroke="#4A4F57" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="tool-right">
+        <span class="chip" id="edChip"><i class="dot"></i><span id="edChipText">元件 0 · 导线 0</span></span>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <div class="place-bar" id="edPlaceBar" hidden>
+        <span>正在放置</span>
+        <button class="pbtn" id="edPlaceDone">完成</button>
+      </div>
+      <div class="sheet-body ed-body" id="edCanvas"></div>
+      <div class="sheet-cap">
+        <span id="edHint">右键出菜单　·　R 旋转 90°　·　点端点起线 → 点端点收笔　·　Delete 删除</span>
+        <span id="edCount"></span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="inspector">
+    <div class="insp-scroll" id="edInsp"></div>
+    <div class="adv" id="edAdv"></div>
+    <div class="insp-foot" id="edInspFoot"></div>
+  </aside>
+
+  <div class="ctxmenu" id="edMenu" hidden></div>
+
+</main>
+
+<script src="js/symgeo.js"></script>
+<script src="js/symlib.js"></script>
+<script src="js/symbols.js"></script>
+<script src="js/circuits.js"></script>
+<script src="js/editor-model.js"></script>
+<script src="js/advisor.js"></script>
+<script src="js/app.js"></script>
+<script src="js/editor-ui.js"></script>
+</body>
+</html>

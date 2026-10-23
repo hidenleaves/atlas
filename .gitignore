@@ -1,0 +1,10 @@
+# 符号库下载缓存（可由 python tools/qet-import.py 重新生成）
+tools/.cache/
+
+# 临时测试页
+_t*.html
+
+# 系统与编辑器垃圾
+.DS_Store
+Thumbs.db
+*.log
