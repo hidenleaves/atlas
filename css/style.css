@@ -927,3 +927,22 @@ input.pin:focus, input.pnum:focus {
   background: #FFFFFF; color: var(--ink-2); border-color: var(--line);
 }
 .chat-cfg-act button.ghost:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 对话窗：token 计量 */
+.chat-stat {
+  flex: 0 0 auto;
+  padding: 5px 12px 6px;
+  border-top: 1px solid var(--line-soft);
+  background: #FCFCF8;
+  font-family: var(--mono);
+  font-size: 9.5px; color: var(--ink-3);
+  text-align: right; letter-spacing: -.01em;
+}
+.chat-stat[hidden] { display: none; }
+.chat-usage {
+  margin-top: 6px; padding-top: 5px;
+  border-top: 1px dashed rgba(20, 22, 26, .09);
+  font-family: var(--mono);
+  font-size: 9.5px; color: var(--ink-3);
+  letter-spacing: -.01em;
+}

@@ -323,34 +323,139 @@
     }
   }
 
-  function post(messages, tools) {
+  /* ---------- 流式请求 ----------
+     边收边显示，tool_calls 会分散在多个分片里，按 index 累积拼接。 */
+  function postStream(messages, tools, onText) {
     var c = cfg();
     var endpoint = c.endpoint || DEFAULTS.endpoint;
     var body = {
       model: c.model || DEFAULTS.model,
       messages: messages,
-      stream: false
+      stream: true,
+      stream_options: { include_usage: true }
     };
     if (tools) body.tools = tools;
+
     var headers = { 'Content-Type': 'application/json' };
     if (c.apiKey) headers['Authorization'] = 'Bearer ' + c.apiKey;
+
     return fetch(endpoint, {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(body)
     }).then(function (r) {
-      return r.text().then(function (t) {
-        if (!r.ok) {
+      if (!r.ok) {
+        return r.text().then(function (t) {
           var msg = 'HTTP ' + r.status;
           try {
             var j = JSON.parse(t);
             msg += '：' + ((j.error && j.error.message) || t.slice(0, 120));
           } catch (e) { msg += '：' + t.slice(0, 120); }
           throw new Error(msg);
-        }
-        return JSON.parse(t);
-      });
+        });
+      }
+      if (!r.body || !r.body.getReader) {
+        // 极端情况兜底：拿不到流就整包读
+        return r.text().then(function (t) {
+          var acc = { content: '', toolCalls: [], usage: null };
+          t.split('\n').forEach(function (line) {
+            if (line.indexOf('data:') !== 0) return;
+            var d = line.slice(5).trim();
+            if (!d || d === '[DONE]') return;
+            try { absorb(JSON.parse(d), acc, null); } catch (e) {}
+          });
+          return acc;
+        });
+      }
+
+      var reader = r.body.getReader();
+      var dec = new TextDecoder();
+      var buf = '';
+      var acc = { content: '', toolCalls: [], usage: null };
+
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done) return acc;
+          buf += dec.decode(res.value, { stream: true });
+          var lines = buf.split('\n');
+          buf = lines.pop();
+          for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (line.indexOf('data:') !== 0) continue;
+            var data = line.slice(5).trim();
+            if (!data || data === '[DONE]') continue;
+            var j;
+            try { j = JSON.parse(data); } catch (e) { continue; }
+            absorb(j, acc, onText);
+          }
+          return pump();
+        });
+      }
+      return pump();
     });
+  }
+
+  // 把一片 SSE 数据并进累积器
+  function absorb(j, acc, onText) {
+    if (j.usage) acc.usage = j.usage;
+    var ch = j.choices && j.choices[0];
+    if (!ch) return;
+    var d = ch.delta || {};
+    if (d.content) {
+      acc.content += d.content;
+      if (onText) onText(acc.content);
+    }
+    if (d.tool_calls) {
+      d.tool_calls.forEach(function (tc) {
+        var i = tc.index == null ? 0 : tc.index;
+        if (!acc.toolCalls[i]) {
+          acc.toolCalls[i] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+        }
+        var slot = acc.toolCalls[i];
+        if (tc.id) slot.id = tc.id;
+        if (tc.function) {
+          if (tc.function.name) slot.function.name += tc.function.name;
+          if (tc.function.arguments) slot.function.arguments += tc.function.arguments;
+        }
+      });
+    }
+  }
+
+  /* ---------- token 计量 ---------- */
+  // deepseek-v4-flash 官方价：$0.15 / 1M 输入，$0.60 / 1M 输出
+  var PRICE = { input: 0.15, output: 0.60, fx: 7.2 };
+  var sessionUsage = { prompt: 0, completion: 0 };
+
+  function fmtNum(n) {
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return String(n);
+  }
+
+  function usageLine(u) {
+    if (!u) return '';
+    var p = u.prompt_tokens || 0, c = u.completion_tokens || 0;
+    var cny = (p * PRICE.input + c * PRICE.output) / 1000000 * PRICE.fx;
+    return '↑' + fmtNum(p) + '  ↓' + fmtNum(c) + '  ≈ ¥' + cny.toFixed(4);
+  }
+
+  function addUsage(u) {
+    if (!u) return;
+    sessionUsage.prompt += u.prompt_tokens || 0;
+    sessionUsage.completion += u.completion_tokens || 0;
+    updateStat();
+  }
+
+  function updateStat() {
+    if (!el.stat) return;
+    if (!sessionUsage.prompt && !sessionUsage.completion) {
+      el.stat.hidden = true;
+      return;
+    }
+    el.stat.hidden = false;
+    el.stat.textContent = '本次会话  ↑' + fmtNum(sessionUsage.prompt) +
+      '  ↓' + fmtNum(sessionUsage.completion) + '  ≈ ¥' +
+      ((sessionUsage.prompt * PRICE.input + sessionUsage.completion * PRICE.output) /
+        1000000 * PRICE.fx).toFixed(4);
   }
 
   var SYS = '你是 PLC 电气图纸助手，帮用户把中文意图变成画布上的电路。\n' +
@@ -419,7 +524,7 @@
   // 多轮对话历史（不含 system），让"再往右一点""把它删掉"能接得上
   var conv = [];
 
-  function callModel(text, doc) {
+  function callModel(text, doc, onText) {
     var c = cfg();
     if (!c.endpoint && !c.apiKey) return Promise.resolve(null);
     if (!c.apiKey && /deepseek|openai|moonshot|dashscope/i.test(c.endpoint || '')) {
@@ -440,41 +545,42 @@
       if (n > 3) {
         return Promise.resolve({ reply: '做了几步但还没收尾，你先看看画布。', changed: touched });
       }
-      return post(messages, toolSpecs()).then(function (j) {
-        var msg = (j.choices && j.choices[0] && j.choices[0].message) || null;
-        if (!msg) return { reply: '模型没有返回内容。', changed: touched };
+      return postStream(messages, toolSpecs(), onText).then(function (acc) {
+        addUsage(acc.usage);
+        var calls = (acc.toolCalls || []).filter(function (x) {
+          return x && x.function && x.function.name;
+        });
 
-        var calls = msg.tool_calls || [];
         if (!calls.length) {
-          return { reply: (msg.content || '完成。').trim(), changed: touched };
+          return {
+            reply: (acc.content || '').trim() || '完成。',
+            changed: touched,
+            usage: acc.usage
+          };
         }
 
-        var log = [];
         messages.push({
           role: 'assistant',
-          content: msg.content || '',
+          content: acc.content || '',
           tool_calls: calls
         });
-        calls.forEach(function (call) {
-          var name = call.function && call.function.name;
+
+        calls.forEach(function (call, i) {
+          var name = call.function.name;
           var args = {};
           try { args = JSON.parse(call.function.arguments || '{}'); } catch (e) {}
+          if (!call.id) call.id = 'call_' + n + '_' + i;
           var r;
           try { r = runTool(name, args, doc); }
           catch (e) { r = { ok: false, error: String(e.message || e) }; }
           if (r && r.ok) touched = true;
-          log.push((r && r.ok ? '✓ ' : '✗ ') + name +
-            (r && r.error ? '（' + r.error + '）' : ''));
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
             content: brief(r)
           });
         });
-        return step(n + 1).then(function (res) {
-          if (res && !res.log) res.log = log;
-          return res;
-        });
+        return step(n + 1);
       });
     }
 
@@ -526,10 +632,27 @@
 
     busy = true;
     var thinking = bubble('bot', '…');
+    var streamEl = null;
+
+    // 流式：一旦收到第一个字就把「…」换掉，边收边写
+    function onText(partial) {
+      if (!streamEl) {
+        thinking.remove();
+        streamEl = bubble('bot', '');
+      }
+      streamEl.textContent = partial;
+      el.log.scrollTop = el.log.scrollHeight;
+    }
 
     function done(res) {
-      thinking.remove();
-      bubble('bot', res.reply);
+      if (streamEl) {
+        streamEl.textContent = res.reply;
+        if (res.usage) appendUsage(streamEl, res.usage);
+      } else {
+        thinking.remove();
+        var b = bubble('bot', res.reply);
+        if (res.usage) appendUsage(b, res.usage);
+      }
       if (res.changed && hooks.refresh) hooks.refresh();
       busy = false;
     }
@@ -537,7 +660,7 @@
     var local = interpret(text, doc, {});
     if (local) { setTimeout(function () { done(local); }, 60); return; }
 
-    callModel(text, doc).then(function (res) {
+    callModel(text, doc, onText).then(function (res) {
       if (res) { done(res); return; }
       done({
         reply: '这句话我还没学会。能试试："画一个起保停"、"加个自锁"、"放一个熔断器"、"把 QA1 接到 SF1"、"检查一下"。\n' +
@@ -545,6 +668,15 @@
         changed: false
       });
     });
+  }
+
+  function appendUsage(parent, u) {
+    var line = usageLine(u);
+    if (!line) return;
+    var d = document.createElement('div');
+    d.className = 'chat-usage';
+    d.textContent = line;
+    parent.appendChild(d);
   }
 
   function openCfg() {
@@ -652,6 +784,7 @@
     el.cfgKey = document.getElementById('cfgKey');
     el.cfgSave = document.getElementById('cfgSave');
     el.cfgTest = document.getElementById('cfgTest');
+    el.stat = document.getElementById('chatStat');
 
     el.fab.addEventListener('click', function () {
       el.panel.hidden = !el.panel.hidden;
