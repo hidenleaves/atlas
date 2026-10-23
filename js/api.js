@@ -286,6 +286,10 @@
     var km = k.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/);
     if (km) k = km[2].trim();
     c.key = k || nextKey(doc, type);
+    // 三极元件可以只要一极（单线画法/单相电路常用）
+    if (opt.poles != null && c.poles != null) {
+      c.poles = Math.max(1, Math.min(6, Math.round(Number(opt.poles)) || 1));
+    }
     if (t.label && c.key) {
       c.label = {
         text: c.key, ox: t.label.ox, oy: t.label.oy,
@@ -494,6 +498,45 @@
     return { ok: bad.length === 0, total: out.length, failed: bad.length, nodes: out };
   };
 
+  /* 一次画完整张图：放元件 + 连线 + 自检。
+     为什么需要它：模型分十来次 place、再调 wire_nodes、再 check，
+     一次请求就要几十秒，而多轮预算有限（实测 4 轮就把额度耗光了，
+     wire_nodes 根本没轮到）。把三步合成一次调用，一轮就能出图。 */
+  api.drawPlan = function (doc, plan) {
+    plan = plan || {};
+    var comps = plan.components || [];
+    var nodes = plan.nodes || [];
+    var placed = [], errs = [];
+
+    comps.forEach(function (c) {
+      if (!c || !c.type) { errs.push('有元件没写 type'); return; }
+      var r = api.place(doc, c.type, {
+        key: c.key, branch: c.branch, align: c.align,
+        near: c.near, side: c.side, poles: c.poles
+      });
+      if (r.ok) placed.push(r.key || r.type);
+      else errs.push((c.key || c.type) + '：' + r.error);
+    });
+
+    var wr = nodes.length
+      ? api.wireNodes(doc, nodes)
+      : { ok: false, error: '没有给 nodes，元件放好了但一根线都没连', nodes: [] };
+
+    var an = api.analyze(doc);
+
+    return {
+      ok: errs.length === 0 && wr.ok,
+      placed: placed.length,
+      components: placed.join(','),
+      placeErrors: errs.length ? errs : undefined,
+      wiring: wr.ok ? '全部连通' : (wr.failed + '/' + (wr.total || 0) + ' 个节点没连好'),
+      error: wr.error,
+      nodes: wr.nodes,
+      level: an.level,
+      issues: an.issues.slice(0, 6)
+    };
+  };
+
   // 按代号把两个元件"自然连起来"：上→下，跨水平就 A 下脚到 B 上脚
   api.link = function (doc, aRef, bRef) {
     var A = findRef(doc, aRef), B = findRef(doc, bRef);
@@ -508,6 +551,19 @@
   };
 
   api.remove = function (doc, ref) {
+    var s = String(ref == null ? '' : ref).trim();
+    // 同名保护：QA1 的线圈和它的一堆触点都叫 QA1，
+    // 直接删"第一个"会把线圈删掉（模型想删重复触点时会干这事）。
+    var typed = /^[a-zA-Z][a-zA-Z0-9]*:/.test(s);
+    var same = doc.comps.filter(function (x) { return (x.key || '') === s; });
+    if (!typed && same.length > 1) {
+      return {
+        ok: false,
+        error: '代号 ' + s + ' 有 ' + same.length + ' 个元件（' +
+          same.map(function (x) { return x.type; }).join('、') +
+          '），请写成 类型:代号，例如 no:QA1 或 coil:QA1'
+      };
+    }
     var c = findRef(doc, ref);
     if (!c) return { ok: false, error: '找不到元件 ' + ref };
     var id = c.id, key = c.key || id;
@@ -554,7 +610,11 @@
     var key = coil.key;
     if (!key) return { ok: false, error: '这个线圈还没有代号，先给它编个代号' };
     var has = doc.comps.some(function (c) { return c.type === 'no' && c.key === key; });
-    if (has) return { ok: false, error: key + ' 已经有常开触点了' };
+    // 已有就不重复加，但要说成"已具备"而不是报错 ——
+    // 报错会让模型以为缺件，转头去 place_component 乱补，最后把线圈都删了。
+    if (has) {
+      return { ok: true, key: key, skipped: key + ' 已经有常开触点了，无需重复添加' };
+    }
 
     var btn = findRef(doc, buttonRef) ||
       doc.comps.filter(function (c) {

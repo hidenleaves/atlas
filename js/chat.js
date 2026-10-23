@@ -147,6 +147,7 @@
       var coilKey = (s.match(/(QA|KA|KM)\d*/i) || [])[0] || null;
       var r = A.addSelfLock(doc, coilKey || autoCoilKey(doc), null);
       if (!r.ok) return { reply: '没补上：' + r.error, changed: false };
+      if (r.skipped) return { reply: r.skipped, changed: false };
       return { reply: '给 ' + r.key + ' 补了常开触点，并联在按钮两端，现在松手也能保持。', changed: true };
     }
 
@@ -234,6 +235,53 @@
       {
         type: 'function',
         function: {
+          name: 'draw_plan',
+          description: '【首选】一次画完整张图：放好所有元件 + 连好所有线 + 自动自检。' +
+            '画新电路一律用它，不要用 place_component 一个个放。' +
+            '元件按支路给 branch（第几列），连线用节点表（同一节点里的引脚属于同一根线）。',
+          parameters: {
+            type: 'object',
+            properties: {
+              clear: { type: 'boolean', description: '先清空画布。用户说"重画/清空"时给 true' },
+              components: {
+                type: 'array',
+                description: '元件清单',
+                items: {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string', description: 'coil=接触器线圈, no=常开触点, nc=常闭触点, btnNo=按钮, btnNc=常闭按钮, btnStop=急停, limit=行程开关, fuse=熔断器, thermal=热继电器, breaker=断路器, motor=电机, lamp=信号灯, bell=电铃' },
+                    key: { type: 'string', description: '代号，如 SF1、QA1。只写代号，不要带类型前缀' },
+                    branch: { type: 'number', description: '第几列，从 1 开始。同列自动往下排' },
+                    poles: { type: 'number', description: '可选。三极元件（fuse3/thermal/contactor3）只要一极时写 1' },
+                    align: { type: 'string', description: '可选。与被并联的元件同行（填它的代号）' }
+                  },
+                  required: ['type', 'branch']
+                }
+              },
+              nodes: {
+                type: 'array',
+                description: '节点表：每个节点是一根等电位线',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: '节点名，如 L、N、A1' },
+                    pins: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: '属于这根线的引脚，如 ["SF1#0","no:QA1#0"]。#0 上脚，#1 下脚'
+                    }
+                  },
+                  required: ['name', 'pins']
+                }
+              }
+            },
+            required: ['components', 'nodes']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
           name: 'place_component',
           description: '在图纸上放一个电气元件。必须给 branch（第几列，从 1 开始）：' +
             '同一列自动往下排，不同列往右开新列。主回路一列、并联支路另一列。',
@@ -248,21 +296,6 @@
               side: { type: 'string', enum: ['right', 'left', 'below', 'above'] }
             },
             required: ['type', 'branch']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'add_self_lock',
-          description: '给某个线圈补一个同名常开触点，并联到按钮两端实现自锁',
-          parameters: {
-            type: 'object',
-            properties: {
-              coil: { type: 'string', description: '线圈代号' },
-              button: { type: 'string', description: '要并联的按钮代号' }
-            },
-            required: ['coil']
           }
         }
       },
@@ -346,6 +379,10 @@
   function runTool(name, args, doc) {
     switch (name) {
       case 'place_component': return A.place(doc, args.type, args);
+      case 'draw_plan': {
+        if (args.clear) A.clear(doc);
+        return A.drawPlan(doc, args);
+      }
       case 'connect': return A.connect(doc, args.from, args.to);
       case 'link': return A.link(doc, args.a, args.b);
       case 'add_self_lock': return A.addSelfLock(doc, args.coil, args.button);
@@ -510,50 +547,63 @@
   }
 
   var SYS = '你是 PLC 电气图纸助手，把用户的中文意图变成画布上的电路图。\n' +
-    '\n【每条请求都带一条「画布现状」，先读再用】\n' +
-    '· 已存在的元件不要重复放；用户说"这个""它"指「当前选中」的元件\n' +
-    '· "加一个""再来"是增量，不要清空；只有明确说"重画/清空"才清\n' +
-    '\n【硬流程：放 → 连 → 查，三步不能省】\n' +
-    '第 1 步 放元件：所有元件在**同一轮里一次性放完**，不要放两个就停。\n' +
-    '  place_component 必须给 branch（第几列，从 1 开始）。\n' +
-    '  同一 branch 自动往下排成一条竖线；不同支路换 branch（1、2、3…）。\n' +
-    '  并联在某个元件两端时，用 align 填被并联的元件代号，放在紧邻的新 branch 上。\n' +
-    '第 2 步 连线：调**一次** wire_nodes，把整张图的所有节点一起传进去。\n' +
-    '  绝对不要用一条条 connect —— 已经取消了，只能 wire_nodes。\n' +
-    '第 3 步 检查：调 check。只有 error 级别要处理，warn/info 可以先不管。\n' +
-    '\n【wire_nodes 怎么写】\n' +
-    '把电路写成"等电位表"：同一个节点里的引脚属于同一根线。\n' +
-    '引脚格式 "元件#脚"，脚从 0 开始：0 是上脚，1 是下脚。\n' +
-    '同名元件必须带类型前缀，否则分不清是哪一个：\n' +
-    '  coil:QA1 = QA1 的线圈；no:QA1 = QA1 的常开触点（自锁用）；nc:QA1 = QA1 的常闭触点（互锁用）\n' +
-    '独占的代号（SF1、BB1）可以只写 SF1#0。\n' +
-    '\n【返回结果怎么读】\n' +
-    'wire_nodes 返回 ok:false 时，看 nodes 里带 X 的行，后面写着具体原因：\n' +
-    '· "找不到元件 X" → 这个元件还没放，补 place_component 后再调一次 wire_nodes\n' +
-    '· "和节点 Y 被连成了同一根线（短路）" → 元件摆错列了，把同列的元件改到不同 branch 重放\n' +
-    '· "有 N 个引脚没接进这根线" → 该引脚引用写错了，检查 #0/#1 和类型前缀\n' +
-    '修一次就够了，不要反复重试；仍然失败就如实告诉用户哪里卡住。\n' +
-    '\n【示例：正反转（两个方向互锁）】\n' +
-    '8 个元件，按支路分列。自锁触点紧挨被并联的按钮放，用 align 保持同行：\n' +
-    '  branch 1 竖排：btnNo(SF1) → nc(QA2) → coil(QA1)   ← 正转支路\n' +
-    '  branch 2 单件：no(QA1) align:SF1                   ← SF1 的自锁触点\n' +
-    '  branch 3 竖排：btnNo(SF2) → nc(QA1) → coil(QA2)   ← 反转支路\n' +
-    '  branch 4 单件：no(QA2) align:SF2                   ← SF2 的自锁触点\n' +
-    'wire_nodes：\n' +
-    '  L  = ["SF1#0","SF2#0","no:QA1#0","no:QA2#0"]\n' +
-    '  A1 = ["SF1#1","no:QA1#1","nc:QA2#0"]\n' +
-    '  A2 = ["nc:QA2#1","coil:QA1#0"]\n' +
-    '  B1 = ["SF2#1","no:QA2#1","nc:QA1#0"]\n' +
-    '  B2 = ["nc:QA1#1","coil:QA2#0"]\n' +
-    '  N  = ["coil:QA1#1","coil:QA2#1"]\n' +
-    '\n【示例：起保停】\n' +
-    '  branch 1 竖排：btnNo(SF1) → btnNc(SF2) → coil(QA1)\n' +
-    '  branch 2 单件：no(QA1) align:SF1\n' +
-    '  L = ["SF1#0","no:QA1#0"]\n' +
-    '  A = ["SF1#1","no:QA1#1","SF2#0"]\n' +
-    '  B = ["SF2#1","coil:QA1#0"]\n' +
-    '\n更复杂的电路照这个模式自己写：先把元件按支路分好列，再把每个"等电位点"列成一行。\n' +
-    'wire_nodes 会自动画水平母线和竖直引出线，不需要再手动 add_lead。\n' +
+    '\n【最重要的一条：画图只调一次 draw_plan】\n' +
+    'draw_plan 一次完成三件事：放元件 + 连线 + 自检，一轮就能出图。\n' +
+    '不要用 place_component 一个个放 —— 实测那样要十几轮，根本来不及连线，图会散着。\n' +
+    '只有"在现有图上加一个元件""删掉某个元件"这种小改动，才用 place_component / remove。\n' +
+    '\n【components 怎么写】\n' +
+    'type：coil 接触器线圈 / no 常开触点 / nc 常闭触点 / btnNo 按钮 / btnNc 常闭按钮 / ' +
+    'btnStop 急停 / limit 行程开关 / fuse 熔断器 / thermal 热继电器 / breaker 断路器 / ' +
+    'motor 电机 / lamp 信号灯 / bell 电铃 / contactor3 三极主触点\n' +
+    'branch：第几列，从 1 开始。同一列自动往下排成一条竖线，不同支路换列。\n' +
+    'align：并联在某个元件两端时填它的代号，让两者同一行（自锁触点就该这样放）。\n' +
+    'poles：三极元件只要一极时写 1（单线画法常用）。\n' +
+    '\n【nodes 怎么写】\n' +
+    '每个节点是一根等电位线，把属于同一根线的引脚全列进去。\n' +
+    '引脚格式 "代号#脚"，0 是上脚，1 是下脚。\n' +
+    '同名元件必须加类型前缀：coil:QA1 线圈、no:QA1 自锁触点、contactor3:QA1 主触点、nc:QA1 互锁触点。\n' +
+    '独占代号（SF1、FU1）直接写 SF1#0。\n' +
+    '\n【完整示例：正反转 + 主电路（熔断器、热继电器、电机）+ 自锁】\n' +
+    'draw_plan({\n' +
+    '  components: [\n' +
+    "    {type:'fuse',       key:'FU1', branch:1},\n" +
+    "    {type:'contactor3', key:'QA1', branch:1, poles:1},\n" +
+    "    {type:'thermal',    key:'FR1', branch:1, poles:1},\n" +
+    "    {type:'motor',      key:'M1',  branch:1},\n" +
+    "    {type:'btnNo',      key:'SF1', branch:2},\n" +
+    "    {type:'nc',         key:'QA2', branch:2},\n" +
+    "    {type:'coil',       key:'QA1', branch:2},\n" +
+    "    {type:'no',         key:'QA1', branch:3, align:'SF1'},\n" +
+    "    {type:'btnNo',      key:'SF2', branch:4},\n" +
+    "    {type:'nc',         key:'QA1', branch:4},\n" +
+    "    {type:'coil',       key:'QA2', branch:4},\n" +
+    "    {type:'no',         key:'QA2', branch:5, align:'SF2'}\n" +
+    '  ],\n' +
+    '  nodes: [\n' +
+    "    {name:'L',  pins:['FU1#0','SF1#0','SF2#0','no:QA1#0','no:QA2#0']},\n" +
+    "    {name:'P1', pins:['FU1#1','contactor3:QA1#0']},\n" +
+    "    {name:'P2', pins:['contactor3:QA1#1','FR1#0']},\n" +
+    "    {name:'P3', pins:['FR1#1','M1#0']},\n" +
+    "    {name:'A1', pins:['SF1#1','no:QA1#1','nc:QA2#0']},\n" +
+    "    {name:'A2', pins:['nc:QA2#1','coil:QA1#0']},\n" +
+    "    {name:'B1', pins:['SF2#1','no:QA2#1','nc:QA1#0']},\n" +
+    "    {name:'B2', pins:['nc:QA1#1','coil:QA2#0']},\n" +
+    "    {name:'N',  pins:['coil:QA1#1','coil:QA2#1']}\n" +
+    '  ]\n' +
+    '})\n' +
+    '\n【起保停（短版，照这个模式改就行）】\n' +
+    'components：btnNo(SF1,b1) / btnNc(SF2,b1) / coil(QA1,b1) / no(QA1,b2,align:SF1)\n' +
+    'nodes：L=[SF1#0,no:QA1#0]  A=[SF1#1,no:QA1#1,SF2#0]  B=[SF2#1,coil:QA1#0]\n' +
+    '\n【出错了怎么办】\n' +
+    'draw_plan 返回 ok:false 时，看 nodes 里带 X 的行，后面写着原因：\n' +
+    '· "找不到元件 X" → 该元件没放进 components，补上再调一次\n' +
+    '· "和节点 Y 被连成同一根线（短路）" → 两个节点被摆进同一列了，把它们分到不同 branch\n' +
+    '· "有 N 个引脚没接进这根线" → 引脚写错，检查 #0/#1 和类型前缀\n' +
+    '改一次就好，不要反复重试；仍然失败就如实说哪里卡住。\n' +
+    '\n【其他】\n' +
+    '· 每条请求都带「画布现状」，先读它：已有元件不要重复放；说"这个""它"指当前选中\n' +
+    '· 用户说"重画/清空"时给 clear:true；说"再加一个"是增量，不要 clear\n' +
+    '· wire_nodes 会自动画母线和引出线，不需要 add_lead\n' +
     '回复用简短中文，说清做了什么、有没有没接上的地方，不要罗列工具名。';
 
   /* ---------- 给模型看的画布快照 ----------
@@ -634,12 +684,28 @@
       { role: 'system', content: snapshot(doc, sel) }
     ].concat(conv.slice(-8)).concat([{ role: 'user', content: text }]);
     var touched = false;
+    var finished = false;      // draw_plan 成功后就收尾，不再让它继续动
 
     function step(n) {
-      if (n > 3) {
-        return Promise.resolve({ reply: '做了几步但还没收尾，你先看看画布。', changed: touched });
+      // 原来的 3 轮根本不够：模型习惯"先放元件、再补自锁、再连线"，
+      // 实测 4 轮就用完了，wire_nodes 一次都没轮上，图永远是散的。
+      if (n > 8) {
+        return Promise.resolve({
+          reply: '我做了几步但没能收尾，画布上可能是散的。' +
+            '你可以说"重画一个正反转"，我用内置模板直接出图。',
+          changed: touched
+        });
       }
-      return postStream(messages, toolSpecs(), onText).then(function (acc) {
+      // 走到第 5 轮还没画完，直接把话挑明，别再放元件了
+      if (n === 5 && !finished) {
+        messages.push({
+          role: 'system',
+          content: '【提醒】已经用掉 5 轮，图还没连完。现在立刻调用 draw_plan 或 wire_nodes ' +
+            '把线全部接上。不要再 place_component、不要 remove。'
+        });
+      }
+      var activeTools = finished ? null : toolSpecs();
+      return postStream(messages, activeTools, onText).then(function (acc) {
         addUsage(acc.usage);
         var calls = (acc.toolCalls || []).filter(function (x) {
           return x && x.function && x.function.name;
@@ -676,6 +742,8 @@
           try { r = runTool(name, args, doc); }
           catch (e) { r = { ok: false, error: String(e.message || e) }; }
           if (r && r.ok) touched = true;
+          // draw_plan 成功 = 图已经完整落盘，再让模型折腾只会把它改坏
+          if (name === 'draw_plan' && r && r.ok) finished = true;
           dbg('tool', name + ' ' + (r && r.ok ? 'OK' : 'FAIL') + ' → ' +
             brief(r).slice(0, 260));
           messages.push({
