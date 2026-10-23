@@ -923,3 +923,7 @@ input.pin:focus, input.pnum:focus {
   border-radius: 6px; font-family: var(--sans); font-size: 11px;
   cursor: pointer;
 }
+.chat-cfg-act button.ghost {
+  background: #FFFFFF; color: var(--ink-2); border-color: var(--line);
+}
+.chat-cfg-act button.ghost:hover { color: var(--accent); border-color: var(--accent); }

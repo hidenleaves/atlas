@@ -460,6 +460,72 @@
     else bubble('bot', '没填 Key，还是用内置规则。');
   }
 
+  /* ---------- 连接测试：分层定位断在哪 ---------- */
+  function testConn() {
+    var url = (el.cfgUrl.value || DEFAULTS.endpoint).trim();
+    var model = (el.cfgModel.value || DEFAULTS.model).trim();
+    var key = (el.cfgKey.value || '').trim();
+    var lines = ['① 地址：' + url];
+    var reached = false;
+
+    if (!/^https?:\/\//i.test(url)) {
+      bubble('bot', '地址要以 http:// 或 https:// 开头。');
+      return;
+    }
+
+    // no-cors 只探网络层：不触发预检，能返回就说明包发出去了
+    fetch(url, {
+      method: 'POST', mode: 'no-cors', cache: 'no-store',
+      headers: { 'Content-Type': 'text/plain' },
+      body: '{}'
+    }).then(function () {
+      reached = true;
+      lines.push('② 网络层：能连到服务器 ✅');
+      return fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + (key || 'sk-none')
+        },
+        body: JSON.stringify({
+          model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1
+        })
+      });
+    }).then(function (r) {
+      lines.push('③ 跨域：通过 ✅（HTTP ' + r.status + '）');
+      return r.text().then(function (t) {
+        var low = t.toLowerCase();
+        if (r.status === 401 || /authentication|api key/i.test(t)) {
+          lines.push('④ key 被拒 ❌ 检查是否复制完整、有没有多余空格');
+        } else if (r.status === 400 && /model/.test(low)) {
+          lines.push('④ 模型名不对 ❌ 用 deepseek-v4-flash');
+        } else if (r.status === 402 || /insufficient|balance|quota/.test(low)) {
+          lines.push('④ 余额不足 ❌');
+        } else if (r.status === 200) {
+          lines.push('④ 一切正常 ✅ 可以用了');
+        } else {
+          lines.push('④ 服务器返回 HTTP ' + r.status + '：' + t.slice(0, 120));
+        }
+        bubble('bot', '连接测试\n' + lines.join('\n'));
+      });
+    }).catch(function (e) {
+      if (!reached) {
+        lines.push('② 网络层：连不上服务器 ❌');
+        lines.push('');
+        lines.push('这不是 key 的问题，是这台机器出不去：');
+        lines.push('· 系统代理：设置 → 网络和 Internet → 代理，如果开着"手动代理"但代理软件已经关了，把它关掉（最常见）');
+        lines.push('· 防火墙 / 安全软件拦了浏览器');
+        lines.push('· 换手机热点再试一次，能通就是网络环境的问题');
+      } else {
+        lines.push('③ 跨域被拦 ❌（服务器能连上，但拒绝了浏览器跨域）');
+        lines.push('· 地址可能不是官方端点，第三方中转常常不放行 CORS');
+      }
+      lines.push('');
+      lines.push('原始错误：' + e.message);
+      bubble('bot', '连接测试\n' + lines.join('\n'));
+    });
+  }
+
   function mount(opts) {
     hooks = opts || {};
     el.root = document.getElementById('edChat');
@@ -476,6 +542,7 @@
     el.cfgModel = document.getElementById('cfgModel');
     el.cfgKey = document.getElementById('cfgKey');
     el.cfgSave = document.getElementById('cfgSave');
+    el.cfgTest = document.getElementById('cfgTest');
 
     el.fab.addEventListener('click', function () {
       el.panel.hidden = !el.panel.hidden;
@@ -485,6 +552,7 @@
     el.send.addEventListener('click', submit);
     if (el.cfg) el.cfg.addEventListener('click', openCfg);
     if (el.cfgSave) el.cfgSave.addEventListener('click', saveCfgFromForm);
+    if (el.cfgTest) el.cfgTest.addEventListener('click', testConn);
 
     // 中文输入法：回车正在选字时不要发送
     var composing = false;
