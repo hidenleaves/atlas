@@ -821,6 +821,18 @@
     window.addEventListener('resize', function () {
       if (st.mode === 'draw') { fitZoom(); paint(); }
     });
+
+    // 对话作图：一句话落到画布上
+    if (window.PLCChat) {
+      window.PLCChat.mount({
+        getDoc: function () { return st.doc; },
+        refresh: function () {
+          commit();
+          paint();
+          renderInspector();
+        }
+      });
+    }
   }
 
   function zoom(d) {

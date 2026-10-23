@@ -226,6 +226,23 @@
 
   <div class="ctxmenu" id="edMenu" hidden></div>
 
+  <div class="chat" id="edChat">
+    <button class="chat-fab" id="chatFab" title="用一句话画电路">AI</button>
+    <div class="chat-panel" id="chatPanel" hidden>
+      <div class="chat-head">
+        <b>对话作图</b>
+        <span>说一句，我画到画布上</span>
+        <button class="chat-ico" id="chatCfg" title="模型设置">模型</button>
+        <button class="chat-ico" id="chatClose" title="收起">×</button>
+      </div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-in">
+        <input id="chatInput" placeholder="画一个起保停 / 加个自锁 / 检查一下">
+        <button id="chatSend">发送</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <script src="js/symgeo.js"></script>
@@ -234,6 +251,8 @@
 <script src="js/circuits.js"></script>
 <script src="js/editor-model.js"></script>
 <script src="js/advisor.js"></script>
+<script src="js/api.js"></script>
+<script src="js/chat.js"></script>
 <script src="js/app.js"></script>
 <script src="js/editor-ui.js"></script>
 </body>

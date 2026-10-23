@@ -385,7 +385,7 @@
     btnNo: {
       name: '按钮（常开）', grp: 'ct', tryKey: 'SF',
       make: function (x, y) { return { x: x, y: y, h: 40, key: '' }; },
-      label: { ox: 17, oy: 2, anchor: 'start', size: 12 },
+      label: { ox: 17, oy: 24, anchor: 'start', size: 12 },
       pins: function (c) { return [[c.x, c.y], [c.x, c.y + c.h]]; },
       box: function (c) { return { x: c.x - 12, y: c.y - 4, w: 26, h: c.h + 8 }; },
       svg: function (c) { return SYMLIB.draw('btnNo', c.x, c.y, c.h, { kind: 'no' }); }
@@ -393,7 +393,7 @@
     btnNc: {
       name: '按钮（常闭）', grp: 'ct', tryKey: 'SF',
       make: function (x, y) { return { x: x, y: y, h: 40, key: '' }; },
-      label: { ox: 17, oy: 2, anchor: 'start', size: 12 },
+      label: { ox: 17, oy: 24, anchor: 'start', size: 12 },
       pins: function (c) { return [[c.x, c.y], [c.x, c.y + c.h]]; },
       box: function (c) { return { x: c.x - 12, y: c.y - 4, w: 26, h: c.h + 8 }; },
       svg: function (c) { return SYMLIB.draw('btnNo', c.x, c.y, c.h, { kind: 'nc', flipBlade: true }); }
