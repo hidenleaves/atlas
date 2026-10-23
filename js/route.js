@@ -299,7 +299,9 @@
       Object.keys(attrPos).forEach(function (k) { patch[k] = true; });
       Object.keys(attrNeg).forEach(function (k) { patch[k] = false; });
       if (Object.keys(patch).length) {
-        return { op: 'attrs', attrs: patch, confidence: 0.8 };
+        var ex = {};
+        Object.keys(patch).forEach(function (k) { ex[k] = true; });
+        return { op: 'attrs', attrs: patch, explicit: ex, confidence: 0.8 };
       }
     }
 
@@ -397,20 +399,45 @@
     });
 
     var steps = [];
+    var pendingAttrs = null, pendingExplicit = null;
+
+    function mergeAttrs(target, r) {
+      var at = target.attrs || {};
+      Object.keys(r.attrs).forEach(function (k) { at[k] = r.attrs[k]; });
+      target.attrs = at;
+      var ex = target.explicit || {};
+      if (r.explicit) Object.keys(r.explicit).forEach(function (k) { ex[k] = true; });
+      target.explicit = ex;
+    }
+
     clauses.forEach(function (c) {
       var r = parseClause(c);
       if (!r) return;
       if (r.op === 'attrs') {
-        // 附着到上一张绘制步骤；没有就忽略（比如单独一句"主电路不要"）
+        // 优先附着到上一张绘制步骤；没有就暂存，等下一张绘制
+        var target = null;
         for (var i = steps.length - 1; i >= 0; i--) {
-          if (steps[i].op === 'draw') {
-            var at = steps[i].attrs || {};
-            Object.keys(r.attrs).forEach(function (k) { at[k] = r.attrs[k]; });
-            steps[i].attrs = at;
-            return;
+          if (steps[i].op === 'draw') { target = steps[i]; break; }
+        }
+        if (target) {
+          mergeAttrs(target, r);
+        } else {
+          pendingAttrs = pendingAttrs || {};
+          Object.keys(r.attrs).forEach(function (k) { pendingAttrs[k] = r.attrs[k]; });
+          pendingExplicit = pendingExplicit || {};
+          if (r.explicit) {
+            Object.keys(r.explicit).forEach(function (k) { pendingExplicit[k] = true; });
           }
         }
         return;
+      }
+      if (r.op === 'draw' && pendingAttrs) {
+        r.attrs = r.attrs || {};
+        Object.keys(pendingAttrs).forEach(function (k) { r.attrs[k] = pendingAttrs[k]; });
+        r.explicit = r.explicit || {};
+        Object.keys(pendingExplicit || {}).forEach(function (k) { r.explicit[k] = true; });
+        pendingAttrs = null;
+        pendingExplicit = null;
       }
       steps.push(r);
     });

@@ -212,6 +212,29 @@ check('interpretV2：主电路不带热继电器交给模型', function () {
   assert(doc.comps.length === 0, '不应先改画布');
 });
 
+check('interpretV2：主电路要，画个正反转', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('主电路要，画个正反转', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
+  assert(doc.comps.length >= 20, '元件数 ' + doc.comps.length);
+});
+
+check('interpretV2：不要自锁，画个正反转', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('不要自锁，画个正反转', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '不应有自锁');
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '线圈数量');
+});
+
+check('interpretV2：主电路不带热继电器（前置）交给模型', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('主电路不带热继电器，画个正反转带主电路', doc);
+  assert(r === null, '应交给模型');
+  assert(doc.comps.length === 0, '不应先改画布');
+});
+
 /* ---------------- draw_plan 原子性 / 排序 ---------------- */
 
 check('draw_plan：无效类型在清空前被拦下，原图不动', function () {

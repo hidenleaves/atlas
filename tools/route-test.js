@@ -49,6 +49,11 @@ const CASES = [
   { text: '不要点动，画个自锁', expect: { op: 'draw', type: 'selflock' } },
   { text: '正反转没有互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
   { text: '正反转不带互锁但带自锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: true } } },
+  { text: '主电路要，画个正反转', expect: { op: 'draw', type: 'reverse', attrs: { main: true } } },
+  { text: '不要自锁，画个正反转', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
+  { text: '主电路不带热继电器，画个正反转带主电路', expect: {
+    op: 'draw', type: 'reverse', attrs: { main: true, thermal: false }
+  } },
 
   { text: '加个自锁', expect: { op: 'add', object: 'selflock' } },
   { text: '在现有图上加个自锁', expect: { op: 'add', object: 'selflock' } },

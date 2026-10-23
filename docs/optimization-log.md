@@ -197,6 +197,19 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：route 52/52、fuzz 99/99、api 38/38、template 8/8、prompt 36/36；Edge `main=true / negative=true / PASS`。
 
+## 第 17 轮 · 00:00
+
+主题：属性前置 + explicit 传播。
+
+- `attrs` 步骤生成 `explicit` 标记；没有上一步绘制时先暂存，合并到下一张 `draw`。
+- 前置和后置属性都能生效：
+  - “主电路要，画个正反转” → 主电路模板；
+  - “不要自锁，画个正反转” → 不带自锁；
+  - “主电路不带热继电器，画个正反转带主电路” → explicit thermal=false，交给模型。
+- 新增 route 55 / fuzz 102 / api 41 用例。
+
+验证：route 55/55、fuzz 102/102、api 41/41、template 8/8、prompt 36/36。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -218,6 +231,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 17. ~~路由组合回归（97 条确定性用例）。~~（第 14 轮完成）
 18. ~~模板库一键入口（6 个模板）。~~（第 15 轮完成）
 19. ~~正反转带主电路离线化（明确去掉元件时交模型）。~~（第 16 轮完成）
+20. ~~属性前置 + explicit 传播。~~（第 17 轮完成）
 
 ## 参考
 
