@@ -264,6 +264,37 @@
       {
         type: 'function',
         function: {
+          name: 'wire_nodes',
+          description: '按节点表一次性连好整张图的线。把电路描述成"哪些引脚属于同一根线"，' +
+            '比逐个 connect 可靠得多，复杂图也不会漏。' +
+            '同名元件必须带类型前缀：coil:QA1 是线圈，no:QA1 是自锁触点，nc:QA1 是常闭触点。',
+          parameters: {
+            type: 'object',
+            properties: {
+              nodes: {
+                type: 'array',
+                description: '节点列表，每个节点是一根等电位线',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: '节点名，如 L、N、A' },
+                    pins: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: '属于这根线的引脚，如 ["SF1#0","no:QA1#0"]。#0 上脚，#1 下脚'
+                    }
+                  },
+                  required: ['name', 'pins']
+                }
+              }
+            },
+            required: ['nodes']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
           name: 'check',
           description: '检查当前接线，返回电气问题列表',
           parameters: { type: 'object', properties: {} }
@@ -305,6 +336,7 @@
       case 'add_self_lock': return A.addSelfLock(doc, args.coil, args.button);
       case 'remove': return A.remove(doc, args.ref);
       case 'check': return A.analyze(doc);
+      case 'wire_nodes': return A.wireNodes(doc, args.nodes);
       case 'clear_drawing': return A.clear(doc);
       case 'add_lead': {
         var pin = args.pin == null ? 0 : args.pin;
@@ -468,12 +500,29 @@
     '元件 type：coil 接触器线圈、kCoil 中间继电器线圈、ktCoil 时间继电器线圈、' +
     'no 常开触点、nc 常闭触点、btnNo 按钮、btnNc 常闭按钮、btnStop 急停、limit 行程开关、' +
     'fuse 熔断器、thermal 热继电器、breaker 断路器、motor 电机、lamp 信号灯、bell 电铃。\n' +
-    '画起保停的顺序：place_component(btnNo, SF1) → (btnNc, SF2) → (coil, QA1) ' +
-    '→ link(SF1,SF2) → link(SF2,QA1) → add_self_lock(QA1, SF1)。\n' +
-    '画正反转：两个按钮(SF1/SF2)、两个线圈(QA1/QA2)，每个线圈回路串一个对方的常闭触点做互锁，' +
-    '先用 place_component 放好元件，再用 link 串起来，最后 check 一遍。\n' +
-    '做完必须调用 check，如果还有 error 就修到没有为止。' +
-    '画完记得用 add_lead 给回路上端和下端各引一段线（母线），否则图是悬空的。' +
+    '\n【连线一律用 wire_nodes，不要用 connect 一条条拼】\n' +
+    '把电路写成节点表：同一个节点里的引脚属于同一根线（等电位）。\n' +
+    '引脚写法 "代号#脚"，#0 是上脚，#1 是下脚。\n' +
+    '同名元件必须加类型前缀，否则分不清：coil:QA1 是线圈，no:QA1 是它的自锁触点，nc:QA1 是常闭触点。\n' +
+    '放置顺序沿回路走：主回路元件一个接一个（默认就往下排），并联的触点/按钮用 side:"right" 放右侧。\n' +
+    '\n【起保停】\n' +
+    '放置：btnNo(SF1)、btnNc(SF2)、coil(QA1)、no(QA1, near SF1, side right)\n' +
+    'wire_nodes：\n' +
+    '  L  = ["SF1#0", "no:QA1#0"]\n' +
+    '  A  = ["SF1#1", "no:QA1#1", "SF2#0"]\n' +
+    '  B  = ["SF2#1", "coil:QA1#0"]\n' +
+    '\n【正反转】\n' +
+    '放置：btnNo(SF1)、btnNo(SF2)、no(QA1)、no(QA2)、nc(QA1)、nc(QA2)、coil(QA1)、coil(QA2)\n' +
+    'wire_nodes：\n' +
+    '  L  = ["SF1#0", "SF2#0", "no:QA1#0", "no:QA2#0"]\n' +
+    '  A1 = ["SF1#1", "no:QA1#1", "nc:QA2#0"]\n' +
+    '  A2 = ["nc:QA2#1", "coil:QA1#0"]\n' +
+    '  B1 = ["SF2#1", "no:QA2#1", "nc:QA1#0"]\n' +
+    '  B2 = ["nc:QA1#1", "coil:QA2#0"]\n' +
+    '  N  = ["coil:QA1#1", "coil:QA2#1"]\n' +
+    '\n其他电路照这个模式自己写节点表：把每个"等电位点"列成一行，引脚都写进去。\n' +
+    '画完用 add_lead 给回路首尾各引一段线当电源母线。\n' +
+    'check 里报"线头没接"是因为引出线末端没有元件，正常，不用去修；只有 error 级别需要处理。\n' +
     '回复用简短中文，说清做了什么，不要罗列工具名。';
 
   /* ---------- 给模型看的画布快照 ----------

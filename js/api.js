@@ -34,6 +34,16 @@
   function findRef(doc, ref) {
     if (!doc || ref == null) return null;
     var s = String(ref).trim();
+
+    // type:key 形式 —— 同名元件必须能区分（线圈 QA1 与自锁触点 QA1 是两回事）
+    var tm = s.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/);
+    if (tm) {
+      var hit = doc.comps.filter(function (c) {
+        return c.type === tm[1] && (c.key || '') === tm[2];
+      });
+      if (hit.length) return hit[0];
+    }
+
     var byId = doc.comps.filter(function (c) { return c.id === s; })[0];
     if (byId) return byId;
     var byKey = doc.comps.filter(function (c) { return (c.key || '') === s; });
@@ -77,7 +87,8 @@
     // 2) 以某个元件为锚点（没指定就用最后一个）
     var anchor = findRef(doc, opt.near) ||
       (doc.comps.length ? doc.comps[doc.comps.length - 1] : null);
-    var side = opt.side || 'right';
+    // 默认往下排：控制回路本来就是一串竖着的，横着排会导致长线穿过元件
+    var side = opt.side || 'below';
 
     if (!anchor) {
       // 空画布：从左上角开始
@@ -284,6 +295,74 @@
     M.resolveWire(doc, w);
     doc.wires.push(w);
     return { ok: true, wireId: w.id };
+  };
+
+  /* 按节点表连线。
+     nodes = [{ name:'L', pins:['SF1#0','no:QA1#0'] }, ...]
+     同一节点里的所有引脚属于同一根线，具体怎么铺由这里算。
+     模型只要描述电气拓扑，不用再算"哪个脚连哪个脚"，
+     复杂图也不会漏 —— 这是画完接不上的根因。 */
+  api.wireNodes = function (doc, nodes) {
+    var out = [];
+    (nodes || []).forEach(function (node, ni) {
+      var name = node.name || ('节点' + (ni + 1));
+      var list = [], errs = [];
+
+      (node.pins || []).forEach(function (ref) {
+        var p = parsePin(doc, ref);
+        if (p.error) { errs.push(ref + '：' + p.error); return; }
+        list.push(p);
+      });
+
+      if (list.length < 2) {
+        out.push({
+          node: name, ok: false,
+          error: errs.length ? errs.join('；') : '这个节点少于 2 个引脚，不需要连'
+        });
+        return;
+      }
+
+      // 先按 x 分组：同一列的引脚竖向串起来（这正是教材图的画法），
+      // 不同列之间再用横线接到主干上。
+      // 如果直接按 y 排序串联，横线会从元件身上穿过去。
+      var cols = {};
+      list.forEach(function (p) {
+        var cx = Math.round(p.pt[0]);
+        (cols[cx] = cols[cx] || []).push(p);
+      });
+      var colKeys = Object.keys(cols).map(Number).sort(function (a, b) { return a - b; });
+
+      var made = 0, fail = [];
+      function join(A, B) {
+        if (sameNet(doc, A.pt, B.pt)) return;
+        var r = api.connect(doc, A.comp.id + '#' + A.i, B.comp.id + '#' + B.i);
+        if (r.ok) made++;
+        else fail.push(r.error);
+      }
+
+      // 列内：竖向串联
+      colKeys.forEach(function (k) {
+        var g = cols[k].sort(function (a, b) { return a.pt[1] - b.pt[1]; });
+        for (var i = 1; i < g.length; i++) join(g[i - 1], g[i]);
+      });
+
+      // 列间：用每列最上面那点做横向主干
+      if (colKeys.length > 1) {
+        var tops = colKeys.map(function (k) {
+          return cols[k].sort(function (a, b) { return a.pt[1] - b.pt[1]; })[0];
+        });
+        for (var t = 1; t < tops.length; t++) join(tops[0], tops[t]);
+      }
+
+      out.push({
+        node: name, ok: fail.length === 0,
+        pins: list.length, wires: made,
+        error: fail.length ? fail.join('；') : undefined
+      });
+    });
+
+    var bad = out.filter(function (x) { return !x.ok; });
+    return { ok: bad.length === 0, total: out.length, failed: bad.length, nodes: out };
   };
 
   // 按代号把两个元件"自然连起来"：上→下，跨水平就 A 下脚到 B 上脚
