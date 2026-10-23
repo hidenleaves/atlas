@@ -15,6 +15,7 @@ require('../js/editor-model.js');
 require('../js/advisor.js');
 require('../js/api.js');
 global.PLCRoute = require('../js/route.js');
+global.PLCPrompt = require('../js/prompt.js');
 require('../js/chat.js');
 
 const M = global.PLCEditorModel;
