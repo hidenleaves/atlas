@@ -236,8 +236,33 @@
     { type: 'term', name: '端子' }
   ];
 
+  // 一键模板：和对话作图共用 api.drawTemplate
+  var TPLS = [
+    { kind: 'jog', name: '点动' },
+    { kind: 'selflock', name: '起保停' },
+    { kind: 'interlock', name: '互锁' },
+    { kind: 'reverse', name: '正反转' },
+    { kind: 'reverse', name: '正反转+主电路', main: true },
+    { kind: 'remote', name: '两地控制' }
+  ];
+
+  function tplIcon() {
+    return '<svg class="lib-svg sheet-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
+      '<rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="#2447C9" stroke-width="1.4"/>' +
+      '<path d="M8 8h8M8 12h8M8 16h5" stroke="#2447C9" stroke-width="1.4" stroke-linecap="round"/>' +
+      '</svg>';
+  }
+
   function renderLib() {
-    var html = '';
+    var html = '<div class="lib-grp"><div class="cat-name"><span>模板</span></div>';
+    TPLS.forEach(function (t) {
+      html += '<button class="lib-item tpl" data-tpl="' + t.kind + '"' +
+        (t.main ? ' data-main="1"' : '') +
+        ' title="用模板替换当前图纸">' +
+        '<span class="lib-ico">' + tplIcon() + '</span>' +
+        '<span class="lib-name">' + t.name + '</span></button>';
+    });
+    html += '</div>';
     M.LIB.forEach(function (g) {
       html += '<div class="lib-grp"><div class="cat-name"><span>' + g.name + '</span></div>';
       g.items.forEach(function (type) {
@@ -772,6 +797,8 @@
     el.lib.addEventListener('click', function (e) {
       var b = e.target.closest('.lib-item');
       if (!b) return;
+      var tpl = b.getAttribute('data-tpl');
+      if (tpl) { applyTemplate(tpl, b.getAttribute('data-main') === '1'); return; }
       var type = b.getAttribute('data-type');
       var extra = b.getAttribute('data-extra');
       if (extra) { addExtra(extra); return; }
@@ -1062,6 +1089,23 @@
       if (m) max = Math.max(max, parseInt(m[1], 10));
     });
     return prefix + (max + 1);
+  }
+
+  function applyTemplate(kind, main) {
+    if (!st.doc || !window.PLCApi) return;
+    if (st.doc.comps.length && !confirm('用模板替换当前图纸？')) return;
+    var r = window.PLCApi.drawTemplate(st.doc, { kind: kind, main: !!main });
+    if (!r || !r.ok) {
+      flash((r && (r.error || r.reply)) || '模板没画出来');
+      return;
+    }
+    st.sel = null; st.place = null; st.wire = null; st.flash = null;
+    syncLibActive();
+    commit();
+    paint();
+    renderInspector();
+    renderDocList();
+    flash((r.reply || '模板画好了').split('\n')[0]);
   }
 
   function addExtra(kind) {

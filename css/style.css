@@ -500,6 +500,8 @@ button { font-family: inherit; }
 .lib-svg.sheet-svg { transition: none; }
 .lib-name { font-size: 12px; color: #3F444B; }
 .lib-item.active .lib-name { color: var(--accent); font-weight: 600; }
+.lib-item.tpl .lib-name { color: var(--accent); font-weight: 600; }
+.lib-item.tpl:hover { background: var(--accent-soft); }
 
 /* ---------------- 画布 ---------------- */
 .ed-body {
