@@ -16,7 +16,7 @@
     sim: false, energized: {},
     guides: [], guideHint: '',
     snapOn: true, grid: true, menu: null,
-    advOpen: true, adv: null
+    advOpen: true, adv: null, flash: null
   };
 
   var el = {};
@@ -74,6 +74,7 @@
     st.doc = d;
     st.curId = id;
     st.sel = null; st.wire = null; st.drag = null; st.place = null;
+    st.flash = null; clearTimeout(st._flashT);
     st.energized = {};
     st.hist = []; st.hi = -1;
     commit(true);
@@ -357,6 +358,15 @@
     var r = selBox();
     if (r) o += '<rect class="sel-box" x="' + M.n(r.x) + '" y="' + M.n(r.y) +
       '" width="' + M.n(r.w) + '" height="' + M.n(r.h) + '"/>';
+
+    // 问题定位脉冲：只画在 overlay 上，不参与命中
+    if (st.flash) {
+      var fb = M.targetBox(st.doc, st.flash.kind, st.flash.id);
+      if (fb) {
+        o += '<rect class="flash-box" x="' + M.n(fb.x - 4) + '" y="' + M.n(fb.y - 4) +
+          '" width="' + M.n(fb.w + 8) + '" height="' + M.n(fb.h + 8) + '" rx="4"/>';
+      }
+    }
 
     // 接线助手的问题标记：直接标在出问题的元件角上，不用来回看右栏
     if (st.adv && st.adv.issues && st.adv.issues.length) {
@@ -1071,9 +1081,22 @@
 
   /* ---------------- 选择 / 删除 ---------------- */
   function select(sel) {
+    st.flash = null;
+    clearTimeout(st._flashT);
     st.sel = sel;
     renderInspector();
     updateStatus();
+  }
+
+  // 接线助手点问题时，选中并短暂高亮目标，方便在复杂图上找到位置
+  function flashTarget(kind, id) {
+    st.flash = { kind: kind, id: id };
+    paint();
+    clearTimeout(st._flashT);
+    st._flashT = setTimeout(function () {
+      st.flash = null;
+      paint();
+    }, 1500);
   }
 
   function deleteSel() {
@@ -1409,8 +1432,7 @@
     if (!k || !id) return;
     if (k === 'comp' || k === 'wire' || k === 'mark' || k === 'text' || k === 'deco') {
       select({ kind: k, id: id });
-      paint();
-      renderInspector();
+      flashTarget(k, id);
     }
   }
 
@@ -1646,7 +1668,7 @@
   global.PLCEditor = {
     mount: mount, setMode: setMode, openTemplate: openTemplate,
     exportSvg: exportSvg, paint: paint, commit: commit, select: select,
-    applySim: applySim,
+    flashTarget: flashTarget,
     applySim: applySim,
     state: st,
     _newBlank: function () { var d = M.blank(760, 500); newDoc(d); setMode('draw'); }

@@ -620,6 +620,46 @@
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
+  // 接线助手问题的定位框：元件/导线/接点/虚线/文字统一成一个矩形
+  function targetBox(doc, kind, id) {
+    if (!doc || !kind || !id) return null;
+    if (kind === 'comp') {
+      var c = compById(doc, id);
+      return c ? boxOf(c) : null;
+    }
+    if (kind === 'wire') {
+      var w = null;
+      doc.wires.forEach(function (x) { if (x.id === id) w = x; });
+      if (!w || !w.pts || !w.pts.length) return null;
+      var xs = w.pts.map(function (p) { return p[0]; });
+      var ys = w.pts.map(function (p) { return p[1]; });
+      var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+      var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+      return { x: x0 - 6, y: y0 - 6, w: x1 - x0 + 12, h: y1 - y0 + 12 };
+    }
+    if (kind === 'mark') {
+      var m = null;
+      doc.marks.forEach(function (x) { if (x.id === id) m = x; });
+      return m ? { x: m.x - 8, y: m.y - 8, w: 16, h: 16 } : null;
+    }
+    if (kind === 'deco') {
+      var d = null;
+      doc.deco.forEach(function (x) { if (x.id === id) d = x; });
+      if (!d) return null;
+      var dx0 = Math.min(d.x1, d.x2), dy0 = Math.min(d.y1, d.y2);
+      return { x: dx0 - 6, y: dy0 - 6, w: Math.abs(d.x2 - d.x1) + 12, h: Math.abs(d.y2 - d.y1) + 12 };
+    }
+    if (kind === 'text') {
+      var t = null;
+      doc.texts.forEach(function (x) { if (x.id === id) t = x; });
+      if (!t) return null;
+      var tw = Math.max(24, t.text.length * t.size * 0.62);
+      var tx = t.anchor === 'end' ? t.x - tw : t.anchor === 'middle' ? t.x - tw / 2 : t.x;
+      return { x: tx - 4, y: t.y - t.size * 0.72, w: tw + 8, h: t.size * 1.44 };
+    }
+    return null;
+  }
+
   function pinsOfComp(c) {
     var t = TYPES[c.type];
     if (!t) return [];
@@ -1072,7 +1112,7 @@
   global.PLCEditorModel = {
     GRID: GRID, TYPES: TYPES, LIB: LIB, INK: INK, MONO: MONO, SANS: SANS,
     uid: uid, n: n, esc: esc, txt: txt,
-    anchorOf: anchorOf, boxOf: boxOf, pinsOf: pinsOf, pinIndex: pinIndex,
+    anchorOf: anchorOf, boxOf: boxOf, targetBox: targetBox, pinsOf: pinsOf, pinIndex: pinIndex,
     rotOf: rotOf, rotPt: rotPt, pinsOfComp: pinsOfComp, pivotOf: pivotOf,
     snap: snap, nearestPin: nearestPin, snapPoint: snapPoint, onSeg: onSeg,
     bindPos: bindPos, resolveWire: resolveWire, resolveWires: resolveWires,

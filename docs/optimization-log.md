@@ -90,13 +90,25 @@
 
 验证：`npm test` 全过，`npm run prompt:check` 无 diff。
 
+## 第 8 轮 · 23:11
+
+主题：接线助手问题定位高亮。
+
+- `editor-model.js` 新增 `targetBox(doc, kind, id)`：元件 / 导线 / 接点 / 虚线 / 文字统一成定位矩形。
+- `editor-ui.js` 新增 `flashTarget`：点击接线助手的问题项时选中目标，并画 1.5 秒脉冲框。
+- CSS 新增 `.flash-box` 和 `flashPulse` 动画；`select` / `loadDoc` 会清理计时器。
+- 顺手去掉 `PLCEditor` 里重复的 `applySim` 键。
+- 真页面 iframe 测试：`flash-box=yes`，1.7 秒后 `cleared=true`。
+
+验证：`npm test` 全过（api 32/32，含 `targetBox`），Edge iframe `RESULT=PASS`。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
 2. ~~电源端子检查（advisor warn）与“无法判断回路闭合”措辞。~~（第 3 轮完成）
 3. ~~`draw_template` 工具，让模型和内置路由共用参数化模板。~~（第 4 轮完成）
 4. 星三角 / 降压启动模板（主电路组合已由第 5 轮覆盖正反转）。
-5. UI：错误定位、空状态引导、移动端。
+5. UI：~~错误定位~~（第 8 轮完成）、空状态引导、移动端。
 6. ~~测试与 CI：GitHub Actions 跑 route / api / prompt 测试。~~（第 6 轮完成）
 7. ~~README / 使用说明。~~（第 7 轮完成）
 8. 参考开源：QElectroTech（符号/连线）、OpenPLC/Beremiz（IEC 61131-3）。

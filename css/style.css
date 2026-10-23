@@ -544,6 +544,17 @@ button { font-family: inherit; }
   fill: none; stroke: var(--accent); stroke-width: 1.2;
   stroke-dasharray: 3 3; pointer-events: none;
 }
+/* 接线助手点问题时，目标短暂脉冲 */
+.ed-svg .flash-box {
+  fill: none; stroke: var(--accent); stroke-width: 2.2;
+  stroke-dasharray: 6 4; pointer-events: none;
+  animation: flashPulse .65s ease-out 2;
+}
+@keyframes flashPulse {
+  0% { opacity: 1; stroke-width: 2.6; }
+  70% { opacity: .85; }
+  100% { opacity: .15; stroke-width: 1.2; }
+}
 .ed-svg .pin-hint {
   fill: #fff; stroke: var(--accent); stroke-width: 1.6;
   pointer-events: none;

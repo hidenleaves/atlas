@@ -357,6 +357,29 @@ check('draw_template：主电路模板不允许关闭互锁', function () {
   assert(doc.comps.length === before, '原图被改动');
 });
 
+/* ---------------- 问题定位框 ---------------- */
+
+check('targetBox：元件 / 导线 / 接点 / 文字', function () {
+  const doc = makeReverse(true, true);
+  const comp = doc.comps[0];
+  const cb = M.targetBox(doc, 'comp', comp.id);
+  assert(cb && cb.w > 0 && cb.h > 0, JSON.stringify(cb));
+
+  const wire = doc.wires[0];
+  const wb = M.targetBox(doc, 'wire', wire.id);
+  assert(wb && wb.w > 0 && wb.h >= 0, JSON.stringify(wb));
+
+  doc.marks.push({ id: 'm9', kind: 'term', x: 100, y: 100 });
+  const mb = M.targetBox(doc, 'mark', 'm9');
+  assert(mb && mb.w === 16 && mb.h === 16, JSON.stringify(mb));
+
+  doc.texts.push({ id: 't9', x: 100, y: 100, text: '测试', size: 12, anchor: 'start' });
+  const tb = M.targetBox(doc, 'text', 't9');
+  assert(tb && tb.w > 0 && tb.h > 0, JSON.stringify(tb));
+
+  assert(M.targetBox(doc, 'comp', 'nope') === null, '未知 id 应返回 null');
+});
+
 /* ---------------- 电源端子 / 回路闭合 ---------------- */
 
 check('电源端子：无端子时给 info，检查回复不说“没问题”', function () {
