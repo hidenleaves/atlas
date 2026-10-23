@@ -396,6 +396,13 @@ check('interpretV2：画一个两地控制', function () {
   assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
 });
 
+check('draw_template：两地控制意图识别', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'remote' });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(A.analyze(doc).intent === '两地控制', JSON.stringify(A.analyze(doc).intent));
+});
+
 /* ---------------- 问题定位框 ---------------- */
 
 check('targetBox：元件 / 导线 / 接点 / 文字', function () {

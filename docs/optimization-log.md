@@ -138,6 +138,17 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：route 50/50、api 36/36、prompt 36/36，Edge headless `18 元件 / 5 端子 / level=ok / PASS`。
 
+## 第 12 轮 · 23:51
+
+主题：模板画廊测试 + 两地控制意图识别。
+
+- 新增 `tools/template-test.js`：8 个模板逐个画，检查落盘、元件数、导线、标题、电气 error、SVG 渲染。
+- `npm test` 加入 template-test；CI 会自动覆盖。
+- advisor 的 `detectIntent` 增加“两地控制”识别（1 线圈 + 2 个 nc + 3 个 no）。
+- api-test 增加两地控制意图断言。
+
+验证：模板 8/8 全部 `level=ok`；`npm test` 全过（route 50、api 37、template 8、prompt 36）。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -155,6 +166,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 13. ~~首次 GitHub Actions 运行结果确认（push 后查 API）。~~（第 6 轮完成，success）
 14. 跨子句属性前置（“主电路要，画个正反转”）暂不合并到下一张图。
 15. 复合指令多步骤属性合并边界（“画个正反转然后别画互锁”）。
+16. ~~模板画廊测试 + 两地控制意图识别。~~（第 12 轮完成）
 
 ## 参考
 

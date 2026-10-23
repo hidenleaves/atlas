@@ -161,6 +161,10 @@
     if (n.coil >= 2 && n.btnNo >= 2) {
       return { key: 'rev', name: '正反转控制', color: '#C9793B' };
     }
+    // 两地/多地控制：一个线圈 + 两个常闭停止 + 三个常开（两地启动 + 自锁）
+    if (n.coil === 1 && n.nc >= 2 && n.no >= 3) {
+      return { key: 'remote', name: '两地控制', color: '#2E7D5B' };
+    }
     if (n.coil === 1 && (n.btnNo >= 1 || n.btnNc >= 1)) {
       var lock = comps.some(function (c) { return c.type === 'no'; });
       if (lock) return { key: 'selflock', name: '起保停（自锁）', color: '#2E7D5B' };
