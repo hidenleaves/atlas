@@ -690,6 +690,34 @@
     };
   };
 
+  /* 内置模板的统一入口：路由和模型工具都走这里。
+     模板会替换当前图；失败回滚，和 draw_plan 的原子性一致。 */
+  api.drawTemplate = function (doc, opts) {
+    opts = opts || {};
+    var T = global.PLCTemplates;
+    if (!T) return { ok: false, error: '模板模块未加载', reply: '模板模块未加载' };
+    var snap = M.clone(doc);
+    var r = T.build(doc, opts);
+    if (!r) r = { ok: false, error: '模板没有返回结果', reply: '模板没有返回结果' };
+    if (r.ok) {
+      var an = api.analyze(doc);
+      r.level = an.level;
+      r.issues = an.issues.slice(0, 6);
+      if (an.level === 'error') {
+        r.ok = false;
+        r.error = '电气检查发现错误：' + an.issues.filter(function (x) {
+          return x.level === 'error';
+        }).slice(0, 2).map(function (x) { return x.msg; }).join('；');
+        r.reply = r.error;
+      }
+    }
+    if (!r.ok && opts.rollback !== false) {
+      restoreDoc(doc, snap);
+      r.rolledBack = true;
+    }
+    return r;
+  };
+
   // 按代号把两个元件"自然连起来"：上→下，跨水平就 A 下脚到 B 上脚
   api.link = function (doc, aRef, bRef) {
     var A = findRef(doc, aRef), B = findRef(doc, bRef);

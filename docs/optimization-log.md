@@ -45,11 +45,23 @@
 
 验证：prompt 30/30、route 37/37、api 25/25、Edge headless `terminals=true / check=true / PASS`。
 
+## 第 4 轮 · 21:02
+
+主题：`draw_template` 工具与模板单一实现。
+
+- 新增 `js/templates.js`：`jog / selflock / interlock / reverse`，返回 `{ok, kind, title, reply}`。
+- 新增 `api.drawTemplate`：快照 + 失败回滚 + 电气自检；路由和模型共用同一入口。
+- `chat.js` 的四个 `build*` 改为薄封装；`execStep` 的 draw 分支统一走 `drawTemplate`。
+- 新增模型工具 `draw_template`（`kind` enum + `interlock/selflock` 开关），工具总数 8。
+- 提示词增加 `draw_template` 用法；`draw_template` 成功也进入收尾，避免模型回头改图。
+
+验证：prompt 32/32、route 37/37、api 29/29、Edge headless `reverse=true / interlock=true / route=true / tools=true / PASS`。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
 2. ~~电源端子检查（advisor warn）与“无法判断回路闭合”措辞。~~（第 3 轮完成）
-3. `draw_template` 工具，让模型和内置路由共用参数化模板。
+3. ~~`draw_template` 工具，让模型和内置路由共用参数化模板。~~（第 4 轮完成）
 4. 更多模板：星三角 / 主电路组合。
 5. UI：错误定位、空状态引导、移动端。
 6. 测试与 CI：GitHub Actions 跑 route / api / prompt 测试。
@@ -57,6 +69,7 @@
 8. 参考开源：QElectroTech（符号/连线）、OpenPLC/Beremiz（IEC 61131-3）。
 9. `wireNodes` 侧向引出：避免母线引出线穿过同列其他引脚。
 10. 端子落点优化：目前放节点首引脚，后续可放到母线端点并自动避让元件。
+11. `draw_template` 的主电路 / 星三角模板（当前仍走 draw_plan）。
 
 ## 参考
 

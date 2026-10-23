@@ -17,6 +17,7 @@ require('../js/api.js');
 global.PLCRoute = require('../js/route.js');
 const P = require('../js/prompt.js');
 global.PLCPrompt = P;
+global.PLCTemplates = require('../js/templates.js');
 require('../js/chat.js');
 const C = global.PLCChat;
 const root = path.join(__dirname, '..');

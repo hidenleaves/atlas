@@ -56,117 +56,28 @@
   /* ---------------- 模板电路 ---------------- */
 
   function buildJog(doc) {
-    A.clear(doc);
-    A.place(doc, 'btnNo', { key: 'SF1', x: 220, y: 120 });
-    A.place(doc, 'coil', { key: 'QA1', x: 220, y: 250 });
-    A.link(doc, 'SF1', 'QA1');
-    A.lead(doc, 'SF1', 0, 220, 60);
-    A.lead(doc, 'QA1', 1, 220, 400);
-    doc.title = '点动控制';
-    return '点动回路：按住 SF1 接触器吸合，松开就停。';
+    var r = A.drawTemplate(doc, { kind: 'jog' });
+    return r.reply || r.error || '模板绘制失败';
   }
 
   function buildSelfLock(doc) {
-    A.clear(doc);
-    A.place(doc, 'btnNo', { key: 'SF1', x: 220, y: 120 });
-    A.place(doc, 'btnNc', { key: 'SF2', x: 220, y: 230 });
-    A.place(doc, 'coil', { key: 'QA1', x: 220, y: 340 });
-    A.link(doc, 'SF1', 'SF2');
-    A.link(doc, 'SF2', 'QA1');
-    A.addSelfLock(doc, 'QA1', 'SF1');
-    A.lead(doc, 'SF1', 0, 220, 60);
-    A.lead(doc, 'QA1', 1, 220, 460);
-    doc.title = '起保停控制';
-    return '起保停画好了：SF1 启动、SF2 停止、QA1 接触器，自锁触点已经并联在启动按钮两端 —— 松开按钮也能保持。';
+    var r = A.drawTemplate(doc, { kind: 'selflock' });
+    return r.reply || r.error || '模板绘制失败';
   }
 
-  /* 正反转：两条支路各自串一个对方的常闭触点做互锁，各带一个自锁触点。
-     这是教材里的标准画法，也是"复杂图"的入门档 —— 内置一份，
-     模型不给力时至少这条路能立刻出图。 */
   function buildReverse(doc, opts) {
     opts = opts || {};
-    var lock = opts.interlock !== false;   // 默认串对方的常闭触点
-    var self = opts.selflock !== false;    // 默认带自锁触点
-    A.clear(doc);
-
-    // branch 1：正转支路（按钮 → 反转互锁 → 正转线圈）
-    A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
-    if (lock) A.place(doc, 'nc', { key: 'QA2', branch: 1 });
-    A.place(doc, 'coil', { key: 'QA1', branch: 1 });
-    // branch 2：SF1 的自锁触点，与 SF1 同行
-    if (self) A.place(doc, 'no', { key: 'QA1', branch: 2, align: 'SF1' });
-
-    // branch 3：反转支路
-    A.place(doc, 'btnNo', { key: 'SF2', branch: 3 });
-    if (lock) A.place(doc, 'nc', { key: 'QA1', branch: 3 });
-    A.place(doc, 'coil', { key: 'QA2', branch: 3 });
-    // branch 4：SF2 的自锁触点
-    if (self) A.place(doc, 'no', { key: 'QA2', branch: 4, align: 'SF2' });
-
-    // 没有互锁时，按钮下端直接接线圈上端；有互锁时中间隔一层常闭触点
-    var L = ['SF1#0', 'SF2#0'];
-    if (self) L.push('no:QA1#0', 'no:QA2#0');
-
-    var A1 = ['SF1#1'];
-    if (self) A1.push('no:QA1#1');
-    if (lock) A1.push('nc:QA2#0'); else A1.push('coil:QA1#0');
-
-    var B1 = ['SF2#1'];
-    if (self) B1.push('no:QA2#1');
-    if (lock) B1.push('nc:QA1#0'); else B1.push('coil:QA2#0');
-
-    var nodes = [{ name: 'L', pins: L }, { name: 'A1', pins: A1 }];
-    if (lock) nodes.push({ name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] });
-    nodes.push({ name: 'B1', pins: B1 });
-    if (lock) nodes.push({ name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] });
-    nodes.push({ name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] });
-
-    var r = A.wireNodes(doc, nodes);
-    doc.title = '正反转控制' + (lock ? '' : '（不带互锁）') + (self ? '' : '（不带自锁）');
-    if (!r.ok) {
-      return '正反转画好了，但有几根线没接上：' +
-        r.nodes.filter(function (n) { return !n.ok; })
-          .map(function (n) { return n.node + '（' + n.error + '）'; }).join('；');
-    }
-
-    var msg = '正反转画好了：SF1 正转、SF2 反转';
-    msg += lock ? '，各串对方的常闭触点做互锁（正转时不能反转）' : '，按你的要求没有串互锁';
-    msg += self ? '，自锁触点并联在按钮两端' : '，没有加自锁触点';
-    msg += '，正转和反转两个回路已接好。';
-    if (!lock) {
-      msg += '\n注意：没有互锁时两个接触器可能同时吸合，造成相间短路，实际接线必须加互锁。';
-    }
-    return msg;
+    var r = A.drawTemplate(doc, {
+      kind: 'reverse',
+      interlock: opts.interlock !== false,
+      selflock: opts.selflock !== false
+    });
+    return r.reply || r.error || '模板绘制失败';
   }
 
-  /* 纯互锁：两条支路各串一个对方的常闭触点。
-     和正反转的区别：互锁只是"两个不能同时吸合"，不换相序、不驱动电机。
-     之前把"互锁"并进正反转的触发词，用户说"画个互锁"却得到正反转 —— 这是错的。 */
   function buildInterlock(doc) {
-    A.clear(doc);
-    A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
-    A.place(doc, 'nc', { key: 'QA2', branch: 1 });
-    A.place(doc, 'coil', { key: 'QA1', branch: 1 });
-    A.place(doc, 'btnNo', { key: 'SF2', branch: 2, align: 'SF1' });
-    A.place(doc, 'nc', { key: 'QA1', branch: 2 });
-    A.place(doc, 'coil', { key: 'QA2', branch: 2 });
-
-    var r = A.wireNodes(doc, [
-      { name: 'L', pins: ['SF1#0', 'SF2#0'] },
-      { name: 'A1', pins: ['SF1#1', 'nc:QA2#0'] },
-      { name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] },
-      { name: 'B1', pins: ['SF2#1', 'nc:QA1#0'] },
-      { name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] },
-      { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] }
-    ]);
-    doc.title = '互锁控制';
-    if (!r.ok) {
-      return '互锁画好了，但有几根线没接上：' +
-        r.nodes.filter(function (n) { return !n.ok; })
-          .map(function (n) { return n.node + '（' + n.error + '）'; }).join('；');
-    }
-    return '互锁画好了：SF1 和 SF2 各自串一个对方的常闭触点（nc:QA2 / nc:QA1），' +
-      '两个线圈不会同时吸合。这是纯互锁，不含主电路和自锁 —— 要正反转（换相序驱动电机）跟我说"画正反转"。';
+    var r = A.drawTemplate(doc, { kind: 'interlock' });
+    return r.reply || r.error || '模板绘制失败';
   }
 
   /* ---------------- 内置解析 ---------------- */
@@ -399,19 +310,21 @@
       };
     }
     if (s.op === 'draw') {
+      var o = s.attrs || {};
+      var top = { kind: s.type };
       if (s.type === 'reverse') {
-        var o = s.attrs || {};
+        top.interlock = o.interlock !== false;
+        top.selflock = o.selflock !== false;
+      }
+      if (s.type === 'reverse' || s.type === 'interlock' ||
+          s.type === 'selflock' || s.type === 'jog') {
+        var tr = A.drawTemplate(doc, top);
         return {
-          reply: buildReverse(doc, {
-            interlock: o.interlock !== false,
-            selflock: o.selflock !== false
-          }),
-          changed: true, ok: true
+          reply: tr.reply || tr.error || '模板绘制失败',
+          changed: !tr.rolledBack,
+          ok: !!tr.ok
         };
       }
-      if (s.type === 'interlock') return { reply: buildInterlock(doc), changed: true, ok: true };
-      if (s.type === 'selflock') return { reply: buildSelfLock(doc), changed: true, ok: true };
-      if (s.type === 'jog') return { reply: buildJog(doc), changed: true, ok: true };
     }
     return null;
   }
@@ -532,6 +445,34 @@
       {
         type: 'function',
         function: {
+          name: 'draw_template',
+          description: '用内置模板画一整张图。用户说“点动 / 起保停 / 自锁 / 互锁 / 正反转”时优先用它，' +
+            '比 draw_plan 更稳。会替换当前图；失败会回滚（rolledBack:true）。' +
+            '主电路、星三角等模板外的图用 draw_plan。',
+          parameters: {
+            type: 'object',
+            properties: {
+              kind: {
+                type: 'string',
+                enum: ['jog', 'selflock', 'interlock', 'reverse'],
+                description: 'jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转'
+              },
+              interlock: {
+                type: 'boolean',
+                description: 'reverse 专用：是否串对方的常闭触点，默认 true'
+              },
+              selflock: {
+                type: 'boolean',
+                description: 'reverse 专用：是否带自锁触点，默认 true'
+              }
+            },
+            required: ['kind']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
           name: 'place_component',
           description: '在现有图纸上增量放一个电气元件。必须给 branch（第几列，从 1 开始）：' +
             '同一列自动往下排，不同列往右开新列。主回路一列、并联支路另一列。' +
@@ -641,8 +582,9 @@
   function runTool(name, args, doc) {
     switch (name) {
       case 'place_component': return A.place(doc, args.type, args);
-      // clear 和失败回滚都在 drawPlan 内部处理，避免"先清空再失败"留下空图
+      // clear 和失败回滚都在 drawPlan / drawTemplate 内部处理
       case 'draw_plan': return A.drawPlan(doc, args);
+      case 'draw_template': return A.drawTemplate(doc, args);
       case 'connect': return A.connect(doc, args.from, args.to);
       case 'link': return A.link(doc, args.a, args.b);
       case 'add_self_lock': return A.addSelfLock(doc, args.coil, args.button);
@@ -847,13 +789,16 @@
     var o = {};
     ['ok', 'error', 'failed', 'total', 'key', 'id', 'type', 'x', 'y',
       'removed', 'wiresRemoved', 'wireId', 'level', 'from', 'to', 'points',
-      'rolledBack', 'placed', 'components', 'wiring', 'terminalsPlaced']
+      'rolledBack', 'placed', 'components', 'wiring', 'terminalsPlaced', 'kind', 'reply']
       .forEach(function (k) {
         if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
       });
     if (r.placeErrors) o.placeErrors = r.placeErrors.slice(0, 6);
     if (typeof o.components === 'string' && o.components.length > 240) {
       o.components = o.components.slice(0, 240) + '…';
+    }
+    if (typeof o.reply === 'string' && o.reply.length > 300) {
+      o.reply = o.reply.slice(0, 300) + '…';
     }
     // wire_nodes 的失败原因全在 nodes 里，不传回去模型就只能看到 ok:false，
     // 它不知道该修哪个节点，于是重试或放弃 —— 这是"线连不上"没法自愈的主因。
@@ -962,7 +907,8 @@
           catch (e) { r = { ok: false, error: String(e.message || e) }; }
           if (r && r.ok) touched = true;
           // draw_plan 成功 = 图已经完整落盘，再让模型折腾只会把它改坏
-          if (name === 'draw_plan' && r && r.ok && r.level !== 'error') finished = true;
+          if ((name === 'draw_plan' || name === 'draw_template') &&
+              r && r.ok && r.level !== 'error') finished = true;
           dbg('tool', name + ' ' + (r && r.ok ? 'OK' : 'FAIL') + ' → ' +
             brief(r).slice(0, 260));
           messages.push({

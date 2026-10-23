@@ -16,6 +16,7 @@ require('../js/advisor.js');
 require('../js/api.js');
 global.PLCRoute = require('../js/route.js');
 global.PLCPrompt = require('../js/prompt.js');
+global.PLCTemplates = require('../js/templates.js');
 require('../js/chat.js');
 
 const M = global.PLCEditorModel;
@@ -287,6 +288,46 @@ check('draw_plan：没给 nodes 时文案不含 undefined', function () {
   assert(r.wiring === '没有给 nodes', r.wiring);
   assert(!/undefined/.test(String(r.wiring) + String(r.error)), r.wiring + ' / ' + r.error);
   assert(r.rolledBack === true, '应回滚空图');
+});
+
+/* ---------------- draw_template 模板单一实现 ---------------- */
+
+check('draw_template：正反转不带互锁', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'reverse', interlock: false, selflock: true });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.kind === 'reverse', JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '不应有 nc');
+  assert(/没有串互锁/.test(r.reply), r.reply);
+  assert(r.level === 'ok' || r.level === 'warn', 'level=' + r.level);
+});
+
+check('draw_template：纯互锁', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'interlock' });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '线圈数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁数量');
+  assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+});
+
+check('draw_template：起保停与点动', function () {
+  const a = M.blank(760, 500);
+  const r1 = A.drawTemplate(a, { kind: 'selflock' });
+  assert(r1.ok === true && /起保停/.test(r1.reply), JSON.stringify(r1));
+  const b = M.blank(760, 500);
+  const r2 = A.drawTemplate(b, { kind: 'jog' });
+  assert(r2.ok === true && /点动/.test(r2.reply), JSON.stringify(r2));
+});
+
+check('draw_template：未知模板回滚原图', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = A.drawTemplate(doc, { kind: 'star' });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(/没有这种模板/.test(r.error || ''), r.error);
+  assert(r.rolledBack === true, '应回滚');
+  assert(doc.comps.length === before, '原图被改动');
 });
 
 /* ---------------- 电源端子 / 回路闭合 ---------------- */

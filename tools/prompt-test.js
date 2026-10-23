@@ -17,6 +17,7 @@ require('../js/api.js');
 global.PLCRoute = require('../js/route.js');
 const P = require('../js/prompt.js');
 global.PLCPrompt = P;
+global.PLCTemplates = require('../js/templates.js');
 require('../js/chat.js');
 const C = global.PLCChat;
 const SYS = P.SYS || '';
@@ -32,7 +33,7 @@ function check(name, ok, detail) {
 check('SYS 非空', SYS.length > 200, '长度 ' + SYS.length);
 check('提示词长度 < 9000 字符', SYS.length < 9000, '长度 ' + SYS.length);
 check('没有 TODO / FIXME', !/TODO|FIXME/.test(SYS));
-check('工具数为 7', tools.length === 7, tools.join(', '));
+check('工具数为 8', tools.length === 8, tools.join(', '));
 
 [
   '【角色卡】',
@@ -76,6 +77,11 @@ check('SYS 提到 terminals', SYS.indexOf('terminals') >= 0);
 const place = specs.filter(function (t) { return t.function.name === 'place_component'; })[0];
 check('place_component 有类型 enum',
   !!(place && Array.isArray(place.function.parameters.properties.type.enum)));
+
+const tmpl = specs.filter(function (t) { return t.function.name === 'draw_template'; })[0];
+check('draw_template 有 kind enum',
+  !!(tmpl && Array.isArray(tmpl.function.parameters.properties.kind.enum) &&
+     tmpl.function.parameters.properties.kind.enum.indexOf('reverse') >= 0));
 
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
