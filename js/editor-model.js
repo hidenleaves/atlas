@@ -909,6 +909,10 @@
       } else {
         out += '<circle class="term" data-id="' + m.id + '" data-kind="mark" cx="' + n(m.x) +
           '" cy="' + n(m.y) + '" r="2.8"/>';
+        if (m.name) {
+          out += txt(m.x - 8, m.y - 11, m.name,
+            { anchor: 'end', size: 10, mono: true, color: '#5C6169' });
+        }
       }
       // 同上：接点太小，补一个透明命中圈
       out += '<circle class="mark-hit" data-id="' + m.id + '" data-kind="mark" cx="' + n(m.x) +

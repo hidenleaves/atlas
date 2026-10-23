@@ -257,6 +257,7 @@
       ok: r.level === 'ok',
       level: r.level,
       intent: r.intent ? r.intent.name : null,
+      power: r.power,
       issues: r.issues.map(function (x) {
         return { level: x.level, msg: x.msg, code: x.code };
       })
@@ -558,11 +559,19 @@
     plan = plan || {};
     var comps = Array.isArray(plan.components) ? plan.components : [];
     var nodes = Array.isArray(plan.nodes) ? plan.nodes : [];
+    var terminals = Array.isArray(plan.terminals) ? plan.terminals : [];
     var errs = [];
     var seen = {};
 
     if (!Array.isArray(plan.components)) errs.push('components 必须是数组');
     if (plan.nodes != null && !Array.isArray(plan.nodes)) errs.push('nodes 必须是数组');
+    if (plan.terminals != null && !Array.isArray(plan.terminals)) errs.push('terminals 必须是数组');
+    terminals.forEach(function (t) {
+      if (!t || !t.name || !t.node) { errs.push('端子要写 name 和 node'); return; }
+      if (!nodes.some(function (n) { return n.name === t.node; })) {
+        errs.push('端子 ' + t.name + ' 指向的节点 ' + t.node + ' 不存在');
+      }
+    });
 
     comps.forEach(function (c) {
       if (!c || !c.type) { errs.push('有元件没写 type'); return; }
@@ -625,6 +634,26 @@
              failed: 0, total: 0, nodes: [] };
     }
 
+    // 端子放在指定节点的第一个引脚上；它和该引脚同网，供 advisor 判断回路闭合
+    var termsPlaced = 0;
+    terminals.forEach(function (t) {
+      var node = null;
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].name === t.node) { node = nodes[i]; break; }
+      }
+      if (!node || !node.pins || !node.pins.length) return;
+      var p = parsePin(doc, node.pins[0]);
+      if (p.error) return;
+      if (doc.marks.some(function (m) {
+        return m.kind === 'term' && samePoint([m.x, m.y], p.pt);
+      })) return;
+      doc.marks.push({
+        id: M.uid('m'), kind: 'term',
+        x: p.pt[0], y: p.pt[1], name: String(t.name || '')
+      });
+      termsPlaced++;
+    });
+
     var an = api.analyze(doc);
     var ok = errs.length === 0 && wr.ok && an.level !== 'error';
 
@@ -656,6 +685,7 @@
       nodes: wr.nodes,
       level: an.level,
       issues: an.issues.slice(0, 6),
+      terminalsPlaced: termsPlaced,
       rolledBack: rolledBack
     };
   };

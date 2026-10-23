@@ -127,6 +127,13 @@
   var NEED_COIL = { no: 1, nc: 1, contactor3: 1 };
   var MAIN = { motor: 1, contactor3: 1, thermal: 1, fuse3: 1, breaker: 1, switch3: 1 };
 
+  // "可能导通"的路径分析里，开关/触点/保护件算导体。
+  // 只判断"有没有可能形成回路"，不判断开关当前状态。
+  var CONDUCTIVE = {
+    no: 1, nc: 1, btnNo: 1, btnNc: 1, btnStop: 1, limit: 1, prox: 1, sw: 1,
+    fuse: 1, fuse3: 1, fuseH: 1, thermal: 1, breaker: 1, switch3: 1, contactor3: 1
+  };
+
   // 代号前缀判断：SF/SB/SQ 这类是"人去操作"的元件，不该有同名线圈。
   // 图集里的按钮也是按 no 类型画的，只能靠代号区分，没法只看类型。
   function isOperator(key) {
@@ -304,7 +311,65 @@
         '还有 ' + unnamed.length + ' 个元件没代号（代号联动靠它识别，方便的话补上）', null);
     }
 
-    /* --- 8. 意图模板：缺什么 --- */
+    /* --- 8. 电源端子 / 回路闭合 ---
+       线圈两端必须能沿导线和可导通元件走到 term 标记。
+       只做“可能性”判断：按钮/触点算可导通，不判断当前状态。 */
+    var terms = doc.marks.filter(function (m) { return m.kind === 'term'; });
+    var coilsMissing = [];
+    var hasCoil = comps.some(function (c) { return COILISH[c.type]; });
+    if (hasCoil) {
+      if (!terms.length) {
+        push('info', 'power',
+          '图上没有电源端子，无法判断线圈回路是否闭合', null);
+      } else {
+        var reachedTerm = function (startKey) {
+          var seen = {}, q = [startKey];
+          while (q.length) {
+            var k = q.shift();
+            if (seen[k]) continue;
+            seen[k] = true;
+            var g = groups[net.find(k)];
+            if (!g) continue;
+            if (g.marks.some(function (o) { return o.m.kind === 'term'; })) return true;
+            g.keys.forEach(function (x) { if (!seen[x]) q.push(x); });
+            g.pins.forEach(function (p) {
+              if (!CONDUCTIVE[p.c.type]) return;
+              var ps = M.pinsOfComp(p.c);
+              if (ps.length === 2) {
+                var other = p.i === 0 ? 1 : 0;
+                q.push(pkey(ps[other][0], ps[other][1]));
+              } else if (ps.length > 1) {
+                var pair = p.i % 2 === 0 ? p.i + 1 : p.i - 1;
+                if (ps[pair]) q.push(pkey(ps[pair][0], ps[pair][1]));
+              }
+            });
+          }
+          return false;
+        };
+
+        comps.forEach(function (c) {
+          if (!COILISH[c.type]) return;
+          var ps = M.pinsOfComp(c);
+          if (ps.length < 2) return;
+          var k0 = pkey(ps[0][0], ps[0][1]);
+          var k1 = pkey(ps[1][0], ps[1][1]);
+          var g0 = groups[net.find(k0)];
+          var g1 = groups[net.find(k1)];
+          // 完全没接的线圈交给前面的"悬空/只接一端"规则，不重复报
+          if (!g0 || !g1 || !g0.wires.length || !g1.wires.length) return;
+          if (!reachedTerm(k0) || !reachedTerm(k1)) {
+            coilsMissing.push(c.key || tn(c));
+          }
+        });
+        if (coilsMissing.length) {
+          push('warn', 'power',
+            coilsMissing.join('、') + ' 的线圈回路没有回到电源（缺 L 或 N 端子）', null);
+        }
+      }
+    }
+    var power = { terminals: terms.length, coilsMissing: coilsMissing.length };
+
+    /* --- 9. 意图模板：缺什么 --- */
     var intent = detectIntent(comps);
     if (intent && intent.key === 'jog') {
       var hasNo = comps.some(function (c) { return c.type === 'no'; });
@@ -343,7 +408,8 @@
       intent: intent,
       nets: Object.keys(groups).length,
       level: hasErr ? 'error' : (hasWarn ? 'warn' : 'ok'),
-      ok: !hasErr
+      ok: !hasErr,
+      power: power
     };
   }
 

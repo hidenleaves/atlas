@@ -229,12 +229,12 @@
     // 检查
     if (/(检查|看一下|对不对|有没有错|诊断)/.test(s)) {
       var chk = A.analyze(doc);
-      if (chk.ok) return { reply: '检查过了，接法没问题。', changed: false };
-      return {
-        reply: '发现 ' + chk.issues.length + ' 处：\n' +
-          chk.issues.map(function (x) { return '· ' + x.msg; }).join('\n'),
-        changed: false
-      };
+      if (!chk.issues.length) return { reply: '检查过了，接法没问题。', changed: false };
+      var lines = chk.issues.map(function (x) { return '· ' + x.msg; }).join('\n');
+      if (chk.level === 'ok') {
+        return { reply: '局部接法没发现问题，但有一点要说明：\n' + lines, changed: false };
+      }
+      return { reply: '发现 ' + chk.issues.length + ' 处：\n' + lines, changed: false };
     }
 
     // 删除
@@ -320,10 +320,18 @@
     }
     if (s.op === 'check') {
       var chk = A.analyze(doc);
-      if (chk.ok) return { reply: '检查过了，接法没问题。', changed: false, ok: true };
+      if (!chk.issues.length) {
+        return { reply: '检查过了，接法没问题。', changed: false, ok: true };
+      }
+      var lines = chk.issues.map(function (x) { return '· ' + x.msg; }).join('\n');
+      if (chk.level === 'ok') {
+        return {
+          reply: '局部接法没发现问题，但有一点要说明：\n' + lines,
+          changed: false, ok: true
+        };
+      }
       return {
-        reply: '发现 ' + chk.issues.length + ' 处：\n' +
-          chk.issues.map(function (x) { return '· ' + x.msg; }).join('\n'),
+        reply: '发现 ' + chk.issues.length + ' 处：\n' + lines,
         changed: false, ok: true
       };
     }
@@ -502,6 +510,18 @@
                     }
                   },
                   required: ['name', 'pins']
+                }
+              },
+              terminals: {
+                type: 'array',
+                description: '可选。电源端子：放在某个节点上，用于判断线圈回路是否闭合',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: '端子名，如 L1、N' },
+                    node: { type: 'string', description: '节点名，必须是 nodes 里的 name' }
+                  },
+                  required: ['name', 'node']
                 }
               }
             },
@@ -827,7 +847,7 @@
     var o = {};
     ['ok', 'error', 'failed', 'total', 'key', 'id', 'type', 'x', 'y',
       'removed', 'wiresRemoved', 'wireId', 'level', 'from', 'to', 'points',
-      'rolledBack', 'placed', 'components', 'wiring']
+      'rolledBack', 'placed', 'components', 'wiring', 'terminalsPlaced']
       .forEach(function (k) {
         if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
       });

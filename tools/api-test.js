@@ -289,6 +289,80 @@ check('draw_plan：没给 nodes 时文案不含 undefined', function () {
   assert(r.rolledBack === true, '应回滚空图');
 });
 
+/* ---------------- 电源端子 / 回路闭合 ---------------- */
+
+check('电源端子：无端子时给 info，检查回复不说“没问题”', function () {
+  const doc = makeReverse(true, true);
+  const an = A.analyze(doc);
+  const p = an.issues.filter(function (i) { return i.code === 'power'; });
+  assert(p.length === 1 && p[0].level === 'info', JSON.stringify(p));
+  assert(/没有电源端子/.test(p[0].msg), p[0].msg);
+  const r = C.interpretV2('检查一下', doc);
+  assert(r && /局部接法没发现问题/.test(r.reply), JSON.stringify(r));
+  assert(/没有电源端子/.test(r.reply), JSON.stringify(r));
+});
+
+check('电源端子：L/N 到位后不再提示回路闭合', function () {
+  const doc = makeReverse(true, true);
+  const l = A.pins(doc, 'SF1#0').pins[0];
+  const n = A.pins(doc, 'coil:QA1#1').pins[1];
+  doc.marks.push({ id: 't1', kind: 'term', x: l.x, y: l.y, name: 'L1' });
+  doc.marks.push({ id: 't2', kind: 'term', x: n.x, y: n.y, name: 'N' });
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'power'; }), JSON.stringify(an.issues));
+  assert(an.power.terminals === 2, JSON.stringify(an.power));
+});
+
+check('draw_plan：terminals 落到节点并参与闭合判断', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'btnNo', key: 'SF9', branch: 1 },
+      { type: 'coil', key: 'QA9', branch: 3 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF9#0', 'coil:QA9#0'] },
+      { name: 'N', pins: ['SF9#1', 'coil:QA9#1'] }
+    ],
+    terminals: [{ name: 'L1', node: 'L' }, { name: 'N', node: 'N' }]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.terminalsPlaced === 2, JSON.stringify(r));
+  assert(doc.marks.filter(function (m) { return m.kind === 'term'; }).length === 2, '端子数量');
+  assert(!A.analyze(doc).issues.some(function (i) { return i.code === 'power'; }), '不应再报电源端子');
+});
+
+check('draw_plan：terminals 指向不存在的节点时提前报错', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = A.drawPlan(doc, {
+    clear: true,
+    components: [{ type: 'coil', key: 'QA9', branch: 1 }],
+    nodes: [{ name: 'L', pins: ['coil:QA9#0', 'coil:QA9#1'] }],
+    terminals: [{ name: 'L1', node: 'NOPE' }]
+  });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(/端子 L1 指向的节点 NOPE 不存在/.test(r.error), r.error);
+  assert(doc.comps.length === before, '原图被改动');
+});
+
+check('draw_plan：没有 terminals 时返回“无法判断回路闭合”提示', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'btnNo', key: 'SF9', branch: 1 },
+      { type: 'coil', key: 'QA9', branch: 3 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF9#0', 'coil:QA9#0'] },
+      { name: 'N', pins: ['SF9#1', 'coil:QA9#1'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.issues.some(function (i) { return i.code === 'power' && i.level === 'info'; }),
+    JSON.stringify(r.issues));
+});
+
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
 console.log('');

@@ -69,6 +69,9 @@ check('draw_plan 的 branch 有上下界',
      drawItem.properties.branch.maximum === 6));
 check('draw_plan 的 nodes.pins 至少 2 个',
   !!(draw && draw.function.parameters.properties.nodes.items.properties.pins.minItems === 2));
+check('draw_plan 有 terminals schema',
+  !!(draw && draw.function.parameters.properties.terminals));
+check('SYS 提到 terminals', SYS.indexOf('terminals') >= 0);
 
 const place = specs.filter(function (t) { return t.function.name === 'place_component'; })[0];
 check('place_component 有类型 enum',
