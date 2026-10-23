@@ -235,6 +235,15 @@
         <button class="chat-ico" id="chatCfg" title="模型设置">模型</button>
         <button class="chat-ico" id="chatClose" title="收起">×</button>
       </div>
+      <div class="chat-cfg" id="chatCfgPanel" hidden>
+        <div class="chat-cfg-row"><label>接口</label><input id="cfgUrl" spellcheck="false"></div>
+        <div class="chat-cfg-row"><label>模型</label><input id="cfgModel" spellcheck="false"></div>
+        <div class="chat-cfg-row"><label>Key</label><input id="cfgKey" type="password" spellcheck="false" placeholder="sk-..."></div>
+        <div class="chat-cfg-act">
+          <span>只存本机浏览器，不随文件分享</span>
+          <button id="cfgSave">保存</button>
+        </div>
+      </div>
       <div class="chat-log" id="chatLog"></div>
       <div class="chat-in">
         <input id="chatInput" placeholder="画一个起保停 / 加个自锁 / 检查一下">

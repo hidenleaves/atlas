@@ -183,6 +183,11 @@
     catch (e) { return false; }
   }
 
+  var DEFAULTS = {
+    endpoint: 'https://api.deepseek.com/v1/chat/completions',
+    model: 'deepseek-v4-flash'
+  };
+
   function toolSpecs() {
     return [
       {
@@ -279,50 +284,110 @@
     }
   }
 
-  function callModel(text, doc) {
+  function post(messages, tools) {
     var c = cfg();
-    if (!c.endpoint || typeof fetch !== 'function') return Promise.resolve(null);
+    var endpoint = c.endpoint || DEFAULTS.endpoint;
     var body = {
-      model: c.model || 'qwen3:4b',
-      messages: [
-        {
-          role: 'system',
-          content: '你是 PLC 电气图纸助手。用户会用中文描述想画的电路。' +
-            '你只能调用提供的工具来完成，绝对不要自己编造坐标。' +
-            '常用元件 type：coil 接触器线圈、no 常开触点、nc 常闭触点、btnNo 按钮、btnNc 常闭按钮、fuse 熔断器、thermal 热继电器、motor 电机。' +
-            '画起保停的顺序：放 btnNo(SF1) → 放 btnNc(SF2) → 放 coil(QA1) → link SF1 到 SF2 → link SF2 到 QA1 → add_self_lock(QA1, SF1)。' +
-            '做完后用 check 工具确认没有错误。'
-        },
-        { role: 'user', content: text }
-      ],
-      tools: toolSpecs(),
+      model: c.model || DEFAULTS.model,
+      messages: messages,
       stream: false
     };
-    return fetch(c.endpoint, {
+    if (tools) body.tools = tools;
+    var headers = { 'Content-Type': 'application/json' };
+    if (c.apiKey) headers['Authorization'] = 'Bearer ' + c.apiKey;
+    return fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(body)
     }).then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function (j) {
-      var msg = (j.choices && j.choices[0] && j.choices[0].message) || null;
-      if (!msg) return null;
-      var calls = msg.tool_calls || [];
-      if (!calls.length) {
-        return { reply: msg.content || '我没理解你的意思，换个说法试试？', changed: false };
-      }
-      var log = [];
-      calls.forEach(function (call) {
-        var name = call.function && call.function.name;
-        var args = {};
-        try { args = JSON.parse(call.function.arguments || '{}'); } catch (e) {}
-        var r = runTool(name, args, doc);
-        log.push((r.ok ? '✓ ' : '✗ ') + name + (r.error ? '（' + r.error + '）' : ''));
+      return r.text().then(function (t) {
+        if (!r.ok) {
+          var msg = 'HTTP ' + r.status;
+          try {
+            var j = JSON.parse(t);
+            msg += '：' + ((j.error && j.error.message) || t.slice(0, 120));
+          } catch (e) { msg += '：' + t.slice(0, 120); }
+          throw new Error(msg);
+        }
+        return JSON.parse(t);
       });
-      return { reply: msg.content || ('按你说的做了：\n' + log.join('\n')), changed: true };
-    }).catch(function (e) {
-      return { reply: '模型没连上（' + e.message + '），我先用内置规则处理。', changed: false, fallback: true };
+    });
+  }
+
+  var SYS = '你是 PLC 电气图纸助手，帮用户把中文意图变成画布上的电路。\n' +
+    '规则：只能调用工具完成，绝对不要自己编造坐标或引脚位置，几何由画板计算。\n' +
+    '元件 type：coil 接触器线圈、kCoil 中间继电器线圈、ktCoil 时间继电器线圈、' +
+    'no 常开触点、nc 常闭触点、btnNo 按钮、btnNc 常闭按钮、btnStop 急停、limit 行程开关、' +
+    'fuse 熔断器、thermal 热继电器、breaker 断路器、motor 电机、lamp 信号灯、bell 电铃。\n' +
+    '画起保停的顺序：place_component(btnNo, SF1) → (btnNc, SF2) → (coil, QA1) ' +
+    '→ link(SF1,SF2) → link(SF2,QA1) → add_self_lock(QA1, SF1)。\n' +
+    '画正反转：两个按钮(SF1/SF2)、两个线圈(QA1/QA2)，每个线圈回路串一个对方的常闭触点做互锁，' +
+    '先用 place_component 放好元件，再用 link 串起来，最后 check 一遍。\n' +
+    '做完必须调用 check，如果还有 error 就修到没有为止。回复用简短中文，说清做了什么。';
+
+  function callModel(text, doc) {
+    var c = cfg();
+    if (!c.endpoint && !c.apiKey) return Promise.resolve(null);
+    if (!c.apiKey && /deepseek|openai|moonshot|dashscope/i.test(c.endpoint || '')) {
+      return Promise.resolve({
+        reply: '还没填 API Key。点上面的「模型」把 key 填进去就能听懂更自由的描述了。',
+        changed: false
+      });
+    }
+
+    var messages = [
+      { role: 'system', content: SYS },
+      { role: 'user', content: text }
+    ];
+    var touched = false;
+
+    function step(n) {
+      if (n > 3) {
+        return Promise.resolve({ reply: '做了几步但还没收尾，你先看看画布。', changed: touched });
+      }
+      return post(messages, toolSpecs()).then(function (j) {
+        var msg = (j.choices && j.choices[0] && j.choices[0].message) || null;
+        if (!msg) return { reply: '模型没有返回内容。', changed: touched };
+
+        var calls = msg.tool_calls || [];
+        if (!calls.length) {
+          return { reply: (msg.content || '完成。').trim(), changed: touched };
+        }
+
+        var log = [];
+        messages.push({
+          role: 'assistant',
+          content: msg.content || '',
+          tool_calls: calls
+        });
+        calls.forEach(function (call) {
+          var name = call.function && call.function.name;
+          var args = {};
+          try { args = JSON.parse(call.function.arguments || '{}'); } catch (e) {}
+          var r;
+          try { r = runTool(name, args, doc); }
+          catch (e) { r = { ok: false, error: String(e.message || e) }; }
+          if (r && r.ok) touched = true;
+          log.push((r && r.ok ? '✓ ' : '✗ ') + name +
+            (r && r.error ? '（' + r.error + '）' : ''));
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify(r).slice(0, 1200)
+          });
+        });
+        return step(n + 1).then(function (res) {
+          if (res && !res.log) res.log = log;
+          return res;
+        });
+      });
+    }
+
+    return step(0).catch(function (e) {
+      return {
+        reply: '调用模型失败：' + e.message + '\n检查一下 key、模型名，或者网络。',
+        changed: touched
+      };
     });
   }
 
@@ -375,14 +440,24 @@
 
   function openCfg() {
     var c = cfg();
-    var endpoint = prompt('模型地址（OpenAI 兼容，留空则只用内置规则）\n例如 http://127.0.0.1:11434/v1/chat/completions', c.endpoint || '');
-    if (endpoint === null) return;
-    var model = prompt('模型名（Ollama 用 qwen3:4b）', c.model || 'qwen3:4b');
-    if (model === null) return;
-    saveCfg({ endpoint: endpoint.trim(), model: model.trim() });
-    bubble('bot', endpoint.trim()
-      ? '记下了，接下来会用 ' + model + ' 理解你的话。'
-      : '已切回内置规则模式。');
+    el.cfgPanel.hidden = !el.cfgPanel.hidden;
+    if (el.cfgPanel.hidden) return;
+    el.cfgUrl.value = c.endpoint || DEFAULTS.endpoint;
+    el.cfgModel.value = c.model || DEFAULTS.model;
+    el.cfgKey.value = c.apiKey || '';
+    el.cfgKey.focus();
+  }
+
+  function saveCfgFromForm() {
+    var o = {
+      endpoint: el.cfgUrl.value.trim(),
+      model: el.cfgModel.value.trim(),
+      apiKey: el.cfgKey.value.trim()
+    };
+    saveCfg(o);
+    el.cfgPanel.hidden = true;
+    if (o.apiKey) bubble('bot', '配置好了，接下来能听懂更自由的描述。试试"画一个正反转"。');
+    else bubble('bot', '没填 Key，还是用内置规则。');
   }
 
   function mount(opts) {
@@ -396,6 +471,11 @@
     el.send = document.getElementById('chatSend');
     el.close = document.getElementById('chatClose');
     el.cfg = document.getElementById('chatCfg');
+    el.cfgPanel = document.getElementById('chatCfgPanel');
+    el.cfgUrl = document.getElementById('cfgUrl');
+    el.cfgModel = document.getElementById('cfgModel');
+    el.cfgKey = document.getElementById('cfgKey');
+    el.cfgSave = document.getElementById('cfgSave');
 
     el.fab.addEventListener('click', function () {
       el.panel.hidden = !el.panel.hidden;
@@ -404,6 +484,7 @@
     el.close.addEventListener('click', function () { el.panel.hidden = true; });
     el.send.addEventListener('click', submit);
     if (el.cfg) el.cfg.addEventListener('click', openCfg);
+    if (el.cfgSave) el.cfgSave.addEventListener('click', saveCfgFromForm);
 
     // 中文输入法：回车正在选字时不要发送
     var composing = false;
