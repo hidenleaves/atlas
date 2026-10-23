@@ -77,6 +77,7 @@
 - 工作流加了 `contents: read` 和 concurrency，重复 push 会取消旧任务。
 
 验证：本地 `npm test` 全过，`npm run prompt:check` 无 diff。
+首次 GitHub Actions 运行：`test / completed / success / 1e0a8b1`。
 
 ## 待办队列
 
@@ -92,7 +93,7 @@
 10. 端子落点优化：目前放节点首引脚，后续可放到母线端点并自动避让元件。
 11. `draw_template` 的主电路模板目前复用图集固定版，后续可参数化熔断器/热继电器。
 12. 主电路模板的可编辑性回归：多极元件、重复 `type:key` 的选中/删除。
-13. 首次 GitHub Actions 运行结果确认（push 后查 API）。
+13. ~~首次 GitHub Actions 运行结果确认（push 后查 API）。~~（第 6 轮完成，success）
 
 ## 参考
 
