@@ -607,10 +607,11 @@
       victimPins[c.id] = pinsOf(c);
     });
 
-    // 一条线接在触点的某个脚上时，返回它另一端（旁路要接的地方）
-    function farEnd(w, victimId, pinIdx) {
+    // 一条线接在触点的某个脚上时，返回它另一端（旁路要接的地方）。
+    // 一个引脚可能同时接了好几根线（T 接点），所以这里返回数组。
+    function farEnds(w, victimId, pinIdx) {
       var pts = w.pts || [];
-      if (pts.length < 2) return null;
+      if (pts.length < 2) return [];
       var vPin = victimPins[victimId][pinIdx];
       var atA = w.a && w.a.c === victimId && w.a.i === pinIdx;
       var atB = w.b && w.b.c === victimId && w.b.i === pinIdx;
@@ -618,9 +619,9 @@
         atA = samePoint(pts[0], vPin);
         atB = samePoint(pts[pts.length - 1], vPin);
       }
-      if (atA) return { pt: pts[pts.length - 1], bind: w.b || null };
-      if (atB) return { pt: pts[0], bind: w.a || null };
-      return null;
+      if (atA) return [{ pt: pts[pts.length - 1], bind: w.b || null }];
+      if (atB) return [{ pt: pts[0], bind: w.a || null }];
+      return [];
     }
 
     // 先记下每个触点两端各自连着谁，再删
@@ -629,13 +630,24 @@
       var ps = victimPins[c.id];
       var ends = [];
       for (var i = 0; i < ps.length; i++) {
-        var picked = null;
         doc.wires.forEach(function (w) {
-          if (!picked) picked = farEnd(w, c.id, i);
+          farEnds(w, c.id, i).forEach(function (e) { ends.push(e); });
         });
-        if (picked) ends.push(picked);
       }
-      plan.push({ ends: ends });
+      // 同一端点可能被多条线重复算到，去重
+      var uniq = [];
+      ends.forEach(function (e) {
+        var dup = uniq.some(function (q) {
+          if (!samePoint(q.pt, e.pt)) return false;
+          if (!q.bind && !e.bind) return true;
+          if (q.bind && e.bind && q.bind.c != null && q.bind.c === e.bind.c &&
+              q.bind.i === e.bind.i) return true;
+          if (q.bind && e.bind && q.bind.m != null && q.bind.m === e.bind.m) return true;
+          return false;
+        });
+        if (!dup) uniq.push(e);
+      });
+      plan.push({ ends: uniq });
     });
 
     doc.comps = doc.comps.filter(function (c) { return !ids[c.id]; });
@@ -656,18 +668,18 @@
     });
     var wiresRemoved = before - doc.wires.length;
 
-    // 旁路：把触点原来两端重新接通
+    // 旁路：把触点原来两端的邻居全部汇到同一个网。
+    // 不能只挑"一个对端"——顶部常常是 T 接点（按钮 + 自锁母线），漏一个就断一路。
     var bypassed = 0;
-    plan.forEach(function (p) {
-      if (p.ends.length < 2) return;
-      var a = p.ends[0], b = p.ends[1];
-      if (samePoint(a.pt, b.pt)) return;
-      if (sameNet(doc, a.pt, b.pt)) return;
+    function link(a, b) {
+      if (!a || !b) return false;
+      if (samePoint(a.pt, b.pt)) return false;
+      if (sameNet(doc, a.pt, b.pt)) return false;
 
       if (a.bind && a.bind.c && b.bind && b.bind.c &&
           bindExists(doc, a.bind) && bindExists(doc, b.bind)) {
         var r = api.connect(doc, a.bind.c + '#' + a.bind.i, b.bind.c + '#' + b.bind.i);
-        if (r.ok) { bypassed++; return; }
+        if (r.ok) return true;
       }
 
       var w = { id: M.uid('w'), pts: [[a.pt[0], a.pt[1]]].concat(ortho(a.pt, b.pt)) };
@@ -675,7 +687,15 @@
       if (bindExists(doc, b.bind)) w.b = b.bind;
       M.resolveWire(doc, w);
       doc.wires.push(w);
-      bypassed++;
+      return true;
+    }
+
+    plan.forEach(function (p) {
+      if (p.ends.length < 2) return;
+      var hub = p.ends[0];
+      for (var i = 1; i < p.ends.length; i++) {
+        if (link(hub, p.ends[i])) bypassed++;
+      }
     });
 
     return {

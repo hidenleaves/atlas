@@ -51,6 +51,15 @@ function coilLoose(doc) {
   });
 }
 
+function sameNet(doc, refA, refB) {
+  const a = A.pins(doc, refA), b = A.pins(doc, refB);
+  if (!a.ok || !b.ok) return false;
+  const pa = a.pins[+refA.split('#')[1]], pb = b.pins[+refB.split('#')[1]];
+  const nb = PLCAdvisor.buildNets(doc);
+  const key = function (p) { return (Math.round(p.x * 2) / 2) + ',' + (Math.round(p.y * 2) / 2); };
+  return nb.net.find(key(pa)) === nb.net.find(key(pb));
+}
+
 check('正反转默认：2 个互锁 nc、2 个自锁 no', function () {
   const doc = makeReverse(true, true);
   assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, 'nc 数量');
@@ -81,12 +90,17 @@ check('去除互锁：删 2 个 nc，旁路接通两支路', function () {
   const r = A.removeInterlock(doc);
   assert(r.ok, r.error);
   assert(r.removed.length === 2, JSON.stringify(r));
-  assert(r.bypassed === 2, 'bypassed=' + r.bypassed);
+  assert(r.bypassed >= 2, 'bypassed=' + r.bypassed);
   assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, 'nc 未删净');
   assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '线圈被误删');
   assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁被误删');
   assert(doc.wires.length < before, '导线未减少');
   assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+  // 关键：按钮、自锁、线圈必须重新回到同一个网，不能只通路一半
+  assert(sameNet(doc, 'SF1#1', 'coil:QA1#0'), '正转按钮未接回线圈');
+  assert(sameNet(doc, 'no:QA1#1', 'coil:QA1#0'), '正转自锁未接回线圈');
+  assert(sameNet(doc, 'SF2#1', 'coil:QA2#0'), '反转按钮未接回线圈');
+  assert(sameNet(doc, 'no:QA2#1', 'coil:QA2#0'), '反转自锁未接回线圈');
 });
 
 check('没有互锁时再去除：明确报错，不动其他元件', function () {
