@@ -1,0 +1,14 @@
+{
+  "name": "plc-atlas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PLC 电气图纸图集与可编辑画板（零依赖静态站）",
+  "scripts": {
+    "test": "node tools/route-test.js && node tools/api-test.js && node tools/prompt-test.js",
+    "prompt": "node tools/export-prompt.js",
+    "prompt:check": "node tools/export-prompt.js && git diff --exit-code 提示词.md"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
