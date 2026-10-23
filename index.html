@@ -232,6 +232,7 @@
       <div class="chat-head">
         <b>对话作图</b>
         <span>说一句，我画到画布上</span>
+        <button class="chat-ico" id="chatDbgBtn" title="运行日志（排查用）">日志</button>
         <button class="chat-ico" id="chatCfg" title="模型设置">模型</button>
         <button class="chat-ico" id="chatClose" title="收起">×</button>
       </div>
@@ -250,6 +251,16 @@
       <div class="chat-in">
         <input id="chatInput" placeholder="画一个起保停 / 加个自锁 / 检查一下">
         <button id="chatSend">发送</button>
+      </div>
+      <div class="chat-dbg" id="chatDbg" hidden>
+        <div class="chat-dbg-bar">
+          <b>运行日志</b>
+          <span id="chatDbgN"></span>
+          <button id="dbgCopy">复制</button>
+          <button id="dbgClear">清空</button>
+          <button id="dbgClose">关闭</button>
+        </div>
+        <pre id="chatDbgText"></pre>
       </div>
     </div>
   </div>

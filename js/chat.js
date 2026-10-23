@@ -80,6 +80,42 @@
     return '起保停画好了：SF1 启动、SF2 停止、QA1 接触器，自锁触点已经并联在启动按钮两端 —— 松开按钮也能保持。';
   }
 
+  /* 正反转：两条支路各自串一个对方的常闭触点做互锁，各带一个自锁触点。
+     这是教材里的标准画法，也是"复杂图"的入门档 —— 内置一份，
+     模型不给力时至少这条路能立刻出图。 */
+  function buildReverse(doc) {
+    A.clear(doc);
+    // branch 1：正转支路（按钮 → 反转互锁 → 正转线圈）
+    A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
+    A.place(doc, 'nc', { key: 'QA2', branch: 1 });
+    A.place(doc, 'coil', { key: 'QA1', branch: 1 });
+    // branch 2：SF1 的自锁触点，与 SF1 同行
+    A.place(doc, 'no', { key: 'QA1', branch: 2, align: 'SF1' });
+    // branch 3：反转支路
+    A.place(doc, 'btnNo', { key: 'SF2', branch: 3 });
+    A.place(doc, 'nc', { key: 'QA1', branch: 3 });
+    A.place(doc, 'coil', { key: 'QA2', branch: 3 });
+    // branch 4：SF2 的自锁触点
+    A.place(doc, 'no', { key: 'QA2', branch: 4, align: 'SF2' });
+
+    var r = A.wireNodes(doc, [
+      { name: 'L', pins: ['SF1#0', 'SF2#0', 'no:QA1#0', 'no:QA2#0'] },
+      { name: 'A1', pins: ['SF1#1', 'no:QA1#1', 'nc:QA2#0'] },
+      { name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] },
+      { name: 'B1', pins: ['SF2#1', 'no:QA2#1', 'nc:QA1#0'] },
+      { name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] },
+      { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] }
+    ]);
+    doc.title = '正反转控制';
+    if (!r.ok) {
+      return '正反转画好了，但有几根线没接上：' +
+        r.nodes.filter(function (n) { return !n.ok; })
+          .map(function (n) { return n.node + '（' + n.error + '）'; }).join('；');
+    }
+    return '正反转画好了：SF1 正转、SF2 反转，各串对方的常闭触点做互锁（正转时不能反转），' +
+      '自锁触点并联在按钮两端，正转和反转两个回路已接好。';
+  }
+
   /* ---------------- 内置解析 ---------------- */
 
   function interpret(text, doc, ui) {
@@ -99,6 +135,11 @@
     }
     if (/(画|做|建|生成|来个|帮我弄).*(点动)/.test(s) || /^点动/.test(s)) {
       return { reply: buildJog(doc), changed: true };
+    }
+    // 只接住"纯正反转"，带附加要求（主电路、热继电器、星三角…）的交给模型
+    if (/正反转|正反|互锁|可逆/.test(s) &&
+        !/(主电路|热继电器|熔断器|电机|星三角|降压|再加|还要|同时)/.test(s)) {
+      return { reply: buildReverse(doc), changed: true };
     }
 
     // 补自锁
@@ -194,45 +235,19 @@
         type: 'function',
         function: {
           name: 'place_component',
-          description: '在图纸上放一个电气元件，位置由画板自动安排',
+          description: '在图纸上放一个电气元件。必须给 branch（第几列，从 1 开始）：' +
+            '同一列自动往下排，不同列往右开新列。主回路一列、并联支路另一列。',
           parameters: {
             type: 'object',
             properties: {
               type: { type: 'string', description: 'coil=接触器线圈, no=常开触点, nc=常闭触点, btnNo=按钮, btnNc=常闭按钮, fuse=熔断器, thermal=热继电器, motor=电机, lamp=信号灯' },
-              key: { type: 'string', description: '代号，如 QA1、SF2' },
-              near: { type: 'string', description: '放在哪个元件旁边（代号）' },
+              key: { type: 'string', description: '代号，如 QA1、SF2（只写代号，不要带类型前缀）' },
+              branch: { type: 'number', description: '第几列，从 1 开始。主回路 1，右侧并联支路 2' },
+              align: { type: 'string', description: '可选。与被并联的元件同行（填它的代号），并联支路必须用它' },
+              near: { type: 'string', description: '可选，放在哪个元件旁边（代号）' },
               side: { type: 'string', enum: ['right', 'left', 'below', 'above'] }
             },
-            required: ['type']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'connect',
-          description: '把两个引脚用导线连起来，走线由画板自动正交',
-          parameters: {
-            type: 'object',
-            properties: {
-              from: { type: 'string', description: '如 QA1#1（1 表示下脚，0 表示上脚）' },
-              to: { type: 'string', description: '如 SF1#0' }
-            },
-            required: ['from', 'to']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'link',
-          description: '按代号把两个元件自然连接（自动选上下脚）',
-          parameters: {
-            type: 'object',
-            properties: {
-              a: { type: 'string' }, b: { type: 'string' }
-            },
-            required: ['a', 'b']
+            required: ['type', 'branch']
           }
         }
       },
@@ -360,6 +375,10 @@
   function postStream(messages, tools, onText) {
     var c = cfg();
     var endpoint = c.endpoint || DEFAULTS.endpoint;
+    dbg('req', '模型=' + (c.model || DEFAULTS.model) +
+      ' 消息=' + messages.length +
+      ' [' + messages.map(function (m) { return m.role; }).join(',') + ']' +
+      ' 工具=' + (tools ? tools.length : 0));
     var body = {
       model: c.model || DEFAULTS.model,
       messages: messages,
@@ -490,40 +509,52 @@
         1000000 * PRICE.fx).toFixed(4);
   }
 
-  var SYS = '你是 PLC 电气图纸助手，帮用户把中文意图变成画布上的电路。\n' +
-    '每次请求都会带一条【画布现状】，先读它再动手：\n' +
-    '· 已经存在的元件不要重复放，注意用已有代号\n' +
-    '· 用户说"这个""它"时指「当前选中」的那个元件\n' +
-    '· 说"加一个""再来"是在现有基础上做增量，不要清空\n' +
-    '· 只有用户明确说"重画/清空"才调用 clear 类操作\n' +
-    '规则：只能调用工具完成，绝对不要自己编造坐标或引脚位置，几何由画板计算。\n' +
-    '元件 type：coil 接触器线圈、kCoil 中间继电器线圈、ktCoil 时间继电器线圈、' +
-    'no 常开触点、nc 常闭触点、btnNo 按钮、btnNc 常闭按钮、btnStop 急停、limit 行程开关、' +
-    'fuse 熔断器、thermal 热继电器、breaker 断路器、motor 电机、lamp 信号灯、bell 电铃。\n' +
-    '\n【连线一律用 wire_nodes，不要用 connect 一条条拼】\n' +
-    '把电路写成节点表：同一个节点里的引脚属于同一根线（等电位）。\n' +
-    '引脚写法 "代号#脚"，#0 是上脚，#1 是下脚。\n' +
-    '同名元件必须加类型前缀，否则分不清：coil:QA1 是线圈，no:QA1 是它的自锁触点，nc:QA1 是常闭触点。\n' +
-    '放置顺序沿回路走：主回路元件一个接一个（默认就往下排），并联的触点/按钮用 side:"right" 放右侧。\n' +
-    '\n【起保停】\n' +
-    '放置：btnNo(SF1)、btnNc(SF2)、coil(QA1)、no(QA1, near SF1, side right)\n' +
+  var SYS = '你是 PLC 电气图纸助手，把用户的中文意图变成画布上的电路图。\n' +
+    '\n【每条请求都带一条「画布现状」，先读再用】\n' +
+    '· 已存在的元件不要重复放；用户说"这个""它"指「当前选中」的元件\n' +
+    '· "加一个""再来"是增量，不要清空；只有明确说"重画/清空"才清\n' +
+    '\n【硬流程：放 → 连 → 查，三步不能省】\n' +
+    '第 1 步 放元件：所有元件在**同一轮里一次性放完**，不要放两个就停。\n' +
+    '  place_component 必须给 branch（第几列，从 1 开始）。\n' +
+    '  同一 branch 自动往下排成一条竖线；不同支路换 branch（1、2、3…）。\n' +
+    '  并联在某个元件两端时，用 align 填被并联的元件代号，放在紧邻的新 branch 上。\n' +
+    '第 2 步 连线：调**一次** wire_nodes，把整张图的所有节点一起传进去。\n' +
+    '  绝对不要用一条条 connect —— 已经取消了，只能 wire_nodes。\n' +
+    '第 3 步 检查：调 check。只有 error 级别要处理，warn/info 可以先不管。\n' +
+    '\n【wire_nodes 怎么写】\n' +
+    '把电路写成"等电位表"：同一个节点里的引脚属于同一根线。\n' +
+    '引脚格式 "元件#脚"，脚从 0 开始：0 是上脚，1 是下脚。\n' +
+    '同名元件必须带类型前缀，否则分不清是哪一个：\n' +
+    '  coil:QA1 = QA1 的线圈；no:QA1 = QA1 的常开触点（自锁用）；nc:QA1 = QA1 的常闭触点（互锁用）\n' +
+    '独占的代号（SF1、BB1）可以只写 SF1#0。\n' +
+    '\n【返回结果怎么读】\n' +
+    'wire_nodes 返回 ok:false 时，看 nodes 里带 X 的行，后面写着具体原因：\n' +
+    '· "找不到元件 X" → 这个元件还没放，补 place_component 后再调一次 wire_nodes\n' +
+    '· "和节点 Y 被连成了同一根线（短路）" → 元件摆错列了，把同列的元件改到不同 branch 重放\n' +
+    '· "有 N 个引脚没接进这根线" → 该引脚引用写错了，检查 #0/#1 和类型前缀\n' +
+    '修一次就够了，不要反复重试；仍然失败就如实告诉用户哪里卡住。\n' +
+    '\n【示例：正反转（两个方向互锁）】\n' +
+    '8 个元件，按支路分列。自锁触点紧挨被并联的按钮放，用 align 保持同行：\n' +
+    '  branch 1 竖排：btnNo(SF1) → nc(QA2) → coil(QA1)   ← 正转支路\n' +
+    '  branch 2 单件：no(QA1) align:SF1                   ← SF1 的自锁触点\n' +
+    '  branch 3 竖排：btnNo(SF2) → nc(QA1) → coil(QA2)   ← 反转支路\n' +
+    '  branch 4 单件：no(QA2) align:SF2                   ← SF2 的自锁触点\n' +
     'wire_nodes：\n' +
-    '  L  = ["SF1#0", "no:QA1#0"]\n' +
-    '  A  = ["SF1#1", "no:QA1#1", "SF2#0"]\n' +
-    '  B  = ["SF2#1", "coil:QA1#0"]\n' +
-    '\n【正反转】\n' +
-    '放置：btnNo(SF1)、btnNo(SF2)、no(QA1)、no(QA2)、nc(QA1)、nc(QA2)、coil(QA1)、coil(QA2)\n' +
-    'wire_nodes：\n' +
-    '  L  = ["SF1#0", "SF2#0", "no:QA1#0", "no:QA2#0"]\n' +
-    '  A1 = ["SF1#1", "no:QA1#1", "nc:QA2#0"]\n' +
-    '  A2 = ["nc:QA2#1", "coil:QA1#0"]\n' +
-    '  B1 = ["SF2#1", "no:QA2#1", "nc:QA1#0"]\n' +
-    '  B2 = ["nc:QA1#1", "coil:QA2#0"]\n' +
-    '  N  = ["coil:QA1#1", "coil:QA2#1"]\n' +
-    '\n其他电路照这个模式自己写节点表：把每个"等电位点"列成一行，引脚都写进去。\n' +
-    '画完用 add_lead 给回路首尾各引一段线当电源母线。\n' +
-    'check 里报"线头没接"是因为引出线末端没有元件，正常，不用去修；只有 error 级别需要处理。\n' +
-    '回复用简短中文，说清做了什么，不要罗列工具名。';
+    '  L  = ["SF1#0","SF2#0","no:QA1#0","no:QA2#0"]\n' +
+    '  A1 = ["SF1#1","no:QA1#1","nc:QA2#0"]\n' +
+    '  A2 = ["nc:QA2#1","coil:QA1#0"]\n' +
+    '  B1 = ["SF2#1","no:QA2#1","nc:QA1#0"]\n' +
+    '  B2 = ["nc:QA1#1","coil:QA2#0"]\n' +
+    '  N  = ["coil:QA1#1","coil:QA2#1"]\n' +
+    '\n【示例：起保停】\n' +
+    '  branch 1 竖排：btnNo(SF1) → btnNc(SF2) → coil(QA1)\n' +
+    '  branch 2 单件：no(QA1) align:SF1\n' +
+    '  L = ["SF1#0","no:QA1#0"]\n' +
+    '  A = ["SF1#1","no:QA1#1","SF2#0"]\n' +
+    '  B = ["SF2#1","coil:QA1#0"]\n' +
+    '\n更复杂的电路照这个模式自己写：先把元件按支路分好列，再把每个"等电位点"列成一行。\n' +
+    'wire_nodes 会自动画水平母线和竖直引出线，不需要再手动 add_lead。\n' +
+    '回复用简短中文，说清做了什么、有没有没接上的地方，不要罗列工具名。';
 
   /* ---------- 给模型看的画布快照 ----------
      模型看不见画布，必须每次把"现在有什么"压缩成几行喂进去，
@@ -560,12 +591,26 @@
   function brief(r) {
     if (!r) return '{}';
     var o = {};
-    ['ok', 'error', 'key', 'id', 'type', 'x', 'y', 'removed', 'wiresRemoved',
-      'wireId', 'level', 'from', 'to', 'points'].forEach(function (k) {
-      if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
-    });
+    ['ok', 'error', 'failed', 'total', 'key', 'id', 'type', 'x', 'y',
+      'removed', 'wiresRemoved', 'wireId', 'level', 'from', 'to', 'points']
+      .forEach(function (k) {
+        if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
+      });
+    // wire_nodes 的失败原因全在 nodes 里，不传回去模型就只能看到 ok:false，
+    // 它不知道该修哪个节点，于是重试或放弃 —— 这是"线连不上"没法自愈的主因。
+    if (r.nodes) {
+      o.nodes = r.nodes.map(function (n) {
+        return (n.ok ? 'OK ' : 'X ') + (n.node || n.name || '?') +
+          (n.wires ? '(' + n.wires + '根)' : '') +
+          (n.error ? ' ' + n.error : '');
+      }).slice(0, 10);
+    }
+    if (r.types) {
+      o.types = r.types.map(function (t) { return String(t).split('(')[0]; })
+        .slice(0, 24).join(',');
+    }
     if (r.issues) {
-      o.issues = r.issues.slice(0, 5).map(function (x) { return x.level + ':' + x.msg; });
+      o.issues = r.issues.slice(0, 6).map(function (x) { return x.level + ':' + x.msg; });
     }
     return JSON.stringify(o);
   }
@@ -600,6 +645,14 @@
           return x && x.function && x.function.name;
         });
 
+        dbg('llm', '文本=' + JSON.stringify((acc.content || '').slice(0, 70)) +
+          ' 工具=' + (calls.length
+            ? calls.map(function (x) {
+                return x.function.name + '(' + String(x.function.arguments || '').slice(0, 90) + ')';
+              }).join(' | ')
+            : '无') +
+          ' tokens=' + (acc.usage ? acc.usage.total_tokens : '-'));
+
         if (!calls.length) {
           return {
             reply: (acc.content || '').trim() || '完成。',
@@ -623,6 +676,8 @@
           try { r = runTool(name, args, doc); }
           catch (e) { r = { ok: false, error: String(e.message || e) }; }
           if (r && r.ok) touched = true;
+          dbg('tool', name + ' ' + (r && r.ok ? 'OK' : 'FAIL') + ' → ' +
+            brief(r).slice(0, 260));
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
@@ -642,6 +697,7 @@
       }
       return res;
     }).catch(function (e) {
+      dbg('err', (e && e.message) || String(e));
       var where = (typeof location !== 'undefined' && /^https?:$/.test(location.protocol) &&
         /^(127\.0\.0\.1|localhost)$/.test(location.hostname))
         ? '\n提示：当前是本地服务/应用预览打开的页面，那种环境常常禁外网。请直接双击 index.html（地址栏应是 file:// 开头）再试。'
@@ -660,6 +716,27 @@
   var el = {}, hooks = {};
   var busy = false;
 
+  /* ---------------- 运行日志 ----------------
+     出问题时用户没法把控制台贴过来，所以把"发了什么、模型怎么回的、
+     每个工具执行结果"都记下来，一键复制发给开发者。 */
+  var DBG_KEY = 'plc-atlas.log.v1';
+  var DBG = [];
+  try { DBG = JSON.parse(localStorage.getItem(DBG_KEY) || '[]') || []; } catch (e) { DBG = []; }
+
+  function dbg(kind, text) {
+    DBG.push('[' + new Date().toTimeString().slice(0, 8) + '][' + kind + '] ' + text);
+    if (DBG.length > 160) DBG = DBG.slice(-160);
+    try { localStorage.setItem(DBG_KEY, JSON.stringify(DBG)); } catch (e) {}
+    if (el.dbgText && !el.dbg.hidden) renderDbg();
+  }
+
+  function renderDbg() {
+    if (!el.dbgText) return;
+    el.dbgText.textContent = DBG.join('\n') || '（还没有记录）';
+    el.dbgText.scrollTop = el.dbgText.scrollHeight;
+    if (el.dbgN) el.dbgN.textContent = DBG.length + ' 条';
+  }
+
   function bubble(role, text) {
     var d = document.createElement('div');
     d.className = 'chat-msg ' + role;
@@ -675,6 +752,7 @@
     if (!text) return;
     el.input.value = '';
     bubble('me', text);
+    dbg('user', text);
 
     var doc = hooks.getDoc && hooks.getDoc();
     if (!doc) { bubble('bot', '先切到画板再说话。'); return; }
@@ -834,6 +912,46 @@
     el.cfgSave = document.getElementById('cfgSave');
     el.cfgTest = document.getElementById('cfgTest');
     el.stat = document.getElementById('chatStat');
+    el.dbgBtn = document.getElementById('chatDbgBtn');
+    el.dbg = document.getElementById('chatDbg');
+    el.dbgText = document.getElementById('chatDbgText');
+    el.dbgN = document.getElementById('chatDbgN');
+
+    if (el.dbgBtn) {
+      el.dbgBtn.addEventListener('click', function () {
+        el.dbg.hidden = !el.dbg.hidden;
+        if (!el.dbg.hidden) renderDbg();
+      });
+      document.getElementById('dbgClose').addEventListener('click', function () {
+        el.dbg.hidden = true;
+      });
+      document.getElementById('dbgClear').addEventListener('click', function () {
+        DBG = [];
+        try { localStorage.removeItem(DBG_KEY); } catch (e) {}
+        renderDbg();
+      });
+      document.getElementById('dbgCopy').addEventListener('click', function () {
+        var txt = DBG.join('\n');
+        var btn = this;
+        function done(ok) {
+          btn.textContent = ok ? '已复制' : '复制失败';
+          setTimeout(function () { btn.textContent = '复制'; }, 1400);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt).then(function () { done(true); },
+            function () { done(false); });
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = txt;
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = false;
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          document.body.removeChild(ta);
+          done(ok);
+        }
+      });
+    }
 
     el.fab.addEventListener('click', function () {
       el.panel.hidden = !el.panel.hidden;

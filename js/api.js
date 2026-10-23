@@ -84,7 +84,35 @@
       return { x: probe.x, y: probe.y };
     }
 
-    // 2) 以某个元件为锚点（没指定就用最后一个）
+    // 2) 指定了支路列号：同一列往下摞，不同列往右开
+    //    这是唯一不会把 8 个元件摞到画布外、也不会让所有元件挤在同一 x 的办法
+    if (opt.branch != null) {
+      var b = Math.max(1, Math.round(Number(opt.branch) || 1));
+      var pitch = Math.max(110, snap(doc.w * 0.19));
+      var colX = snap(doc.w * 0.18) + (b - 1) * pitch;
+      // 相邻支路错开半格：如果所有支路的第一行都落在同一个 y 上，
+      // 横向母线就必然从邻列元件的引脚上穿过去 —— 网表会认定接上了，直接短路。
+      var rowOff = ((b - 1) % 2) * 64;
+      // 给了 align：与被对齐的元件放在同一行。并联支路必须这样摆，
+      // 因为横向母线一旦穿过邻列元件的引脚，网表就判成接上了，直接短路。
+      if (opt.align) {
+        var ar = findRef(doc, opt.align);
+        if (ar) {
+          return { x: colX, y: (ar.cx != null) ? snap(ar.cy) : snap(ar.y) };
+        }
+      }
+      var bottom = null;
+      doc.comps.forEach(function (c) {
+        var cb = boxOf(c);
+        if (Math.abs(cb.x + cb.w / 2 - colX) <= 34) {
+          if (!bottom || cb.y + cb.h > bottom.y + bottom.h) bottom = cb;
+        }
+      });
+      var yb = bottom ? snap(bottom.y + bottom.h + GAP_Y) : snap(doc.h * 0.13 + rowOff);
+      return { x: colX, y: yb };
+    }
+
+    // 3) 以某个元件为锚点（没指定就用最后一个）
     var anchor = findRef(doc, opt.near) ||
       (doc.comps.length ? doc.comps[doc.comps.length - 1] : null);
     // 默认往下排：控制回路本来就是一串竖着的，横着排会导致长线穿过元件
@@ -106,9 +134,18 @@
       else if (side === 'below') cand = { x: ab.x + ab.w / 2, y: ab.y + ab.h + GAP_Y };
       else                       cand = { x: ab.x + ab.w / 2, y: ab.y - GAP_Y - h };
 
+      // 往下排到底了就换到右边开新列 —— 否则会摞到画布外面，看不见也连不上
+      if (side === 'below' && cand.y + h > doc.h - 16) {
+        side = 'right';
+        ab = boxOf(anchor);
+        cand = { x: ab.x + ab.w + GAP_X, y: ab.y };
+      }
+
       cand.x = snap(cand.x);
       cand.y = snap(cand.y);
       var box = { x: cand.x - 20, y: cand.y - 8, w: 40, h: h + 16 };
+      // 不能用「撞了继续往下挪」硬撑：连摞几个就会堆到画布外，
+      // 而且全挤在同一 x 上，wire_nodes 会把它们当成一条竖线串起来（短路）。
       if (!overlaps(doc, box)) return cand;
 
       // 撞了就往同一方向再挪一格
@@ -244,7 +281,11 @@
     var c = t.make(spot.x, spot.y);
     c.type = type;
     c.id = M.uid('c');
-    c.key = opt.key || nextKey(doc, type);
+    // 模型偶尔会把引脚写法 no:QA1 误当代号传进来，这里先剥掉类型前缀
+    var k = String(opt.key == null ? '' : opt.key).trim();
+    var km = k.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/);
+    if (km) k = km[2].trim();
+    c.key = k || nextKey(doc, type);
     if (t.label && c.key) {
       c.label = {
         text: c.key, ox: t.label.ox, oy: t.label.oy,
@@ -302,6 +343,26 @@
      同一节点里的所有引脚属于同一根线，具体怎么铺由这里算。
      模型只要描述电气拓扑，不用再算"哪个脚连哪个脚"，
      复杂图也不会漏 —— 这是画完接不上的根因。 */
+  function pickBusY(doc, minY, maxY, x0, x1) {
+    function clear(y) {
+      if (y < 12) return false;
+      return !doc.comps.some(function (c) {
+        var b = boxOf(c);
+        if (b.x > x1 + 2 || b.x + b.w < x0 - 2) return false;
+        return y > b.y + 6 && y < b.y + b.h - 6;
+      });
+    }
+    var cands = [
+      Math.round((minY - 26) / 10) * 10,
+      Math.round((maxY + 26) / 10) * 10,
+      Math.round((minY + maxY) / 2 / 10) * 10
+    ];
+    for (var i = 0; i < cands.length; i++) {
+      if (clear(cands[i])) return cands[i];
+    }
+    return cands[1];
+  }
+
   api.wireNodes = function (doc, nodes) {
     var out = [];
     (nodes || []).forEach(function (node, ni) {
@@ -332,7 +393,7 @@
       });
       var colKeys = Object.keys(cols).map(Number).sort(function (a, b) { return a - b; });
 
-      var made = 0, fail = [];
+      var made = 0, fail = [], reps = [];
       function join(A, B) {
         if (sameNet(doc, A.pt, B.pt)) return;
         var r = api.connect(doc, A.comp.id + '#' + A.i, B.comp.id + '#' + B.i);
@@ -344,22 +405,90 @@
       colKeys.forEach(function (k) {
         var g = cols[k].sort(function (a, b) { return a.pt[1] - b.pt[1]; });
         for (var i = 1; i < g.length; i++) join(g[i - 1], g[i]);
+        reps.push(g[g.length - 1]);
       });
 
-      // 列间：用每列最上面那点做横向主干
-      if (colKeys.length > 1) {
-        var tops = colKeys.map(function (k) {
-          return cols[k].sort(function (a, b) { return a.pt[1] - b.pt[1]; })[0];
+      // 列间：一条水平母线 + 每个代表点竖直引出（教材的母排画法）。
+      // 原来用"最左点连其余各点"，ortho 会绕出一个大外框，
+      // 看着像方框而不是母线，而且横线容易从邻列元件身上穿过去。
+      if (reps.length > 1) {
+        var minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+        list.forEach(function (p) {
+          if (p.pt[1] < minY) minY = p.pt[1];
+          if (p.pt[1] > maxY) maxY = p.pt[1];
+          if (p.pt[0] < minX) minX = p.pt[0];
+          if (p.pt[0] > maxX) maxX = p.pt[0];
         });
-        for (var t = 1; t < tops.length; t++) join(tops[0], tops[t]);
+        var busY = pickBusY(doc, minY, maxY, minX, maxX);
+
+        reps.forEach(function (p) {
+          var px = Math.round(p.pt[0]);
+          if (Math.round(p.pt[1]) === busY) return;
+          var w = {
+            id: M.uid('w'),
+            pts: [[px, p.pt[1]], [px, busY]],
+            a: { c: p.comp.id, i: p.i }
+          };
+          M.resolveWire(doc, w);
+          doc.wires.push(w);
+          made++;
+        });
+
+        doc.wires.push({
+          id: M.uid('w'),
+          pts: [[Math.round(minX), busY], [Math.round(maxX), busY]]
+        });
       }
 
       out.push({
         node: name, ok: fail.length === 0,
         pins: list.length, wires: made,
-        error: fail.length ? fail.join('；') : undefined
+        error: fail.length ? fail.join('；') : undefined,
+        _list: list
       });
     });
+
+    // ---- 自检：只看 connect 有没有报错是不够的 ----
+    // connect 遇到"两点已经连通"会跳过（这是对的，避免重复画线），
+    // 但如果布局把不同节点摆成了同一条竖线，前一根线就把它们串起来了，
+    // 后续全部"已连通"→ 跳过 → made=0、fail=[] → 返回 ok:true。
+    // 结果是短路，但模型被告知成功，于是它不会去修。所以必须回网表验证一遍。
+    if (global.PLCAdvisor) {
+      var nb = null;
+      try { nb = global.PLCAdvisor.buildNets(doc); } catch (e) { nb = null; }
+      if (nb) {
+        var netOf = function (pt) {
+          var k = (Math.round(pt[0] * 2) / 2) + ',' + (Math.round(pt[1] * 2) / 2);
+          return nb.net.find(k);
+        };
+        var valid = out.filter(function (x) { return x.ok && x._list; });
+
+        // ① 节点内：同一根线上的所有引脚必须真的同网
+        valid.forEach(function (o) {
+          var r0 = netOf(o._list[0].pt);
+          var miss = o._list.filter(function (p) { return netOf(p.pt) !== r0; });
+          if (miss.length) {
+            o.ok = false;
+            o.error = '有 ' + miss.length + ' 个引脚没接进这根线';
+          }
+        });
+
+        // ② 节点间：两根不同的线不能落在同一个网上，那是短路
+        for (var i = 0; i < valid.length; i++) {
+          for (var j = i + 1; j < valid.length; j++) {
+            if (!valid[i].ok || !valid[j].ok) continue;
+            if (netOf(valid[i]._list[0].pt) === netOf(valid[j]._list[0].pt)) {
+              valid[i].ok = false;
+              valid[i].error = '和节点 ' + valid[j].name + ' 被连成了同一根线（短路）';
+              valid[j].ok = false;
+              valid[j].error = '和节点 ' + valid[i].name + ' 被连成了同一根线（短路）';
+            }
+          }
+        }
+      }
+    }
+
+    out.forEach(function (o) { delete o._list; });
 
     var bad = out.filter(function (x) { return !x.ok; });
     return { ok: bad.length === 0, total: out.length, failed: bad.length, nodes: out };
