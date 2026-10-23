@@ -221,6 +221,16 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：api 42/42、template 8/8、`npm test` 全过；Edge `terms=2 / labels=true / deco=0 / PASS`。
 
+## 第 19 轮 · 00:03
+
+主题：`draw_template` few-shot 示例。
+
+- SYS 增加 4 条“用户 → 工具调用”示例：正反转+主电路、正反转不带自锁、互锁、两地控制。
+- `prompt-test` 增加“示例存在”检查；提示词 4217 字符，工具 8 个。
+- 目标是减少模型该用模板却去调 `draw_plan` 的概率。
+
+验证：prompt 37/37、route 55/55、fuzz 102/102、api 42/42、template 8/8、`npm test` 全过。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -244,6 +254,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 19. ~~正反转带主电路离线化（明确去掉元件时交模型）。~~（第 16 轮完成）
 20. ~~属性前置 + explicit 传播。~~（第 17 轮完成）
 21. ~~端子落点优化（引线到引脚外侧）。~~（第 18 轮完成）
+22. ~~draw_template few-shot 示例。~~（第 19 轮完成）
 
 ## 参考
 

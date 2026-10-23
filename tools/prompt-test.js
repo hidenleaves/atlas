@@ -89,6 +89,7 @@ check('SYS 提到 main:true', SYS.indexOf('main:true') >= 0);
 check('draw_template 有 remote 模板',
   !!(tmpl && tmpl.function.parameters.properties.kind.enum.indexOf('remote') >= 0));
 check('SYS 提到 remote', SYS.indexOf('remote') >= 0);
+check('SYS 有 draw_template 示例', /draw_template\(\{kind/.test(SYS));
 
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);

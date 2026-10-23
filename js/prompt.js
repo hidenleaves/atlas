@@ -38,6 +38,12 @@ reverse 两个开关：interlock 是否串互锁（默认 true）、selflock 是
 星三角等模板外的图，用 draw_plan。
 draw_template 会替换当前图；失败会回滚。
 
+【draw_template 示例】
+用户：画一个正反转带主电路 → draw_template({kind:'reverse', main:true})
+用户：正反转不要自锁 → draw_template({kind:'reverse', selflock:false})
+用户：画个互锁 → draw_template({kind:'interlock'})
+用户：画个两地控制 → draw_template({kind:'remote'})
+
 【工具纪律】
 1. 画新图：内置模板用 draw_template，其他用 draw_plan；改现有图 → place_component / remove / add_lead。
 2. draw_plan 已经连好线，不需要再调 wire_nodes；只有单独补线时才用它。
