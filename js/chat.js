@@ -1178,6 +1178,38 @@
     el.dbgText = document.getElementById('chatDbgText');
     el.dbgN = document.getElementById('chatDbgN');
 
+    // 快捷指令：不让用户记说法；点击直接发送
+    if (!document.getElementById('chatQuick')) {
+      var quick = document.createElement('div');
+      quick.className = 'chat-quick';
+      quick.id = 'chatQuick';
+      var lab = document.createElement('span');
+      lab.className = 'chat-quick-label';
+      lab.textContent = '试试';
+      quick.appendChild(lab);
+      [
+        ['起保停', '画一个起保停'],
+        ['互锁', '画一个互锁'],
+        ['正反转', '画一个正反转'],
+        ['点动', '画一个点动'],
+        ['加自锁', '加个自锁'],
+        ['检查', '检查一下']
+      ].forEach(function (q) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = q[0];
+        b.title = q[1];
+        b.setAttribute('data-q', q[1]);
+        b.addEventListener('click', function () {
+          if (busy) return;
+          el.input.value = q[1];
+          submit();
+        });
+        quick.appendChild(b);
+      });
+      el.input.parentNode.parentNode.insertBefore(quick, el.input.parentNode);
+    }
+
     if (el.dbgBtn) {
       el.dbgBtn.addEventListener('click', function () {
         el.dbg.hidden = !el.dbg.hidden;
@@ -1234,7 +1266,7 @@
     });
 
     if (!el.log.childNodes.length) {
-      bubble('bot', '我是接线助手。可以直接说：画一个起保停、加个自锁、放一个熔断器、把 QA1 接到 SF1。');
+      bubble('bot', '我是接线助手。可以直接说：画一个起保停、加个自锁、放一个熔断器、把 QA1 接到 SF1。也可以点下面的快捷指令。');
     }
   }
 

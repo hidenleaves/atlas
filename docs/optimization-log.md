@@ -101,6 +101,18 @@
 - 真页面 iframe 测试：`flash-box=yes`，1.7 秒后 `cleared=true`。
 
 验证：`npm test` 全过（api 32/32，含 `targetBox`），Edge iframe `RESULT=PASS`。
+CI：`ce6df0c` 复查为 `completed / success`。
+
+## 第 9 轮 · 23:45
+
+主题：对话快捷指令 + 空状态引导。
+
+- `chat.js` 在挂载时动态创建 `#chatQuick`：起保停 / 互锁 / 正反转 / 点动 / 加自锁 / 检查。
+- 点击 chip 直接填入并发送，不需要用户记说法；问候语提示“也可以点下面的快捷指令”。
+- CSS 增加 `chat-quick` chips 样式，窄屏自动换行。
+- iframe 真页面测试：`buttons=6 / comps=4 / reply=yes / RESULT=PASS`。
+
+验证：`npm test` 全过，Edge iframe PASS。
 
 ## 待办队列
 
@@ -108,7 +120,7 @@
 2. ~~电源端子检查（advisor warn）与“无法判断回路闭合”措辞。~~（第 3 轮完成）
 3. ~~`draw_template` 工具，让模型和内置路由共用参数化模板。~~（第 4 轮完成）
 4. 星三角 / 降压启动模板（主电路组合已由第 5 轮覆盖正反转）。
-5. UI：~~错误定位~~（第 8 轮完成）、空状态引导、移动端。
+5. UI：~~错误定位~~（第 8 轮完成）、~~对话快捷指令/空状态~~（第 9 轮完成）、移动端。
 6. ~~测试与 CI：GitHub Actions 跑 route / api / prompt 测试。~~（第 6 轮完成）
 7. ~~README / 使用说明。~~（第 7 轮完成）
 8. 参考开源：QElectroTech（符号/连线）、OpenPLC/Beremiz（IEC 61131-3）。

@@ -864,6 +864,24 @@ input.pin:focus, input.pnum:focus {
   border-top-right-radius: 3px;
 }
 
+.chat-quick {
+  flex: 0 0 auto;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  padding: 8px 10px 0;
+}
+.chat-quick-label {
+  font-size: 10px; color: var(--ink-3); margin-right: 2px;
+}
+.chat-quick button {
+  height: 24px; padding: 0 9px; border-radius: 12px;
+  border: 1px solid var(--line); background: #FFFFFF;
+  font-family: inherit; font-size: 10.5px; color: var(--ink-2);
+  cursor: pointer; transition: border-color .12s, color .12s;
+}
+.chat-quick button:hover {
+  border-color: var(--accent); color: var(--accent);
+}
+
 .chat-in {
   flex: 0 0 auto;
   display: flex; gap: 7px;
