@@ -446,6 +446,15 @@
     model: 'deepseek-v4-flash'
   };
 
+  // 工具 schema 里用 enum 收敛取值，比在描述里罗列更可靠
+  var COMPONENT_TYPES = [
+    'coil', 'no', 'nc', 'btnNo', 'btnNc', 'btnStop', 'limit',
+    'fuse', 'fuseH', 'fuse3', 'thermal', 'breaker',
+    'motor', 'switch3', 'contactor3',
+    'kCoil', 'ktCoil', 'lamp', 'bell', 'solenoid', 'diode', 'led',
+    'prox', 'sw', 'ground', 'trans2', 'ct', 'plcBox'
+  ];
+
   function toolSpecs() {
     return [
       {
@@ -454,21 +463,24 @@
           name: 'draw_plan',
           description: '【首选】一次画完整张图：放好所有元件 + 连好所有线 + 自动自检。' +
             '画新电路一律用它，不要用 place_component 一个个放。' +
-            '元件按支路给 branch（第几列），连线用节点表（同一节点里的引脚属于同一根线）。',
+            '元件按支路给 branch（第几列），连线用节点表（同一节点里的引脚属于同一根线）。' +
+            '不要在只加一个元件时用它；返回 {ok, placed, wiring, nodes, issues}，' +
+            'ok:false 时读 nodes 里带 X 的行。',
           parameters: {
             type: 'object',
             properties: {
               clear: { type: 'boolean', description: '先清空画布。用户说"重画/清空"时给 true' },
               components: {
                 type: 'array',
+                minItems: 1,
                 description: '元件清单',
                 items: {
                   type: 'object',
                   properties: {
-                    type: { type: 'string', description: 'coil=接触器线圈, no=常开触点, nc=常闭触点, btnNo=按钮, btnNc=常闭按钮, btnStop=急停, limit=行程开关, fuse=熔断器, thermal=热继电器, breaker=断路器, motor=电机, lamp=信号灯, bell=电铃' },
+                    type: { type: 'string', enum: COMPONENT_TYPES, description: '元件类型' },
                     key: { type: 'string', description: '代号，如 SF1、QA1。只写代号，不要带类型前缀' },
-                    branch: { type: 'number', description: '第几列，从 1 开始。同列自动往下排' },
-                    poles: { type: 'number', description: '可选。三极元件（fuse3/thermal/contactor3）只要一极时写 1' },
+                    branch: { type: 'number', minimum: 1, maximum: 6, description: '第几列，从 1 开始。同列自动往下排' },
+                    poles: { type: 'number', minimum: 1, maximum: 6, description: '可选。三极元件（fuse3/thermal/contactor3）只要一极时写 1' },
                     align: { type: 'string', description: '可选。与被并联的元件同行（填它的代号）' }
                   },
                   required: ['type', 'branch']
@@ -476,6 +488,7 @@
               },
               nodes: {
                 type: 'array',
+                minItems: 1,
                 description: '节点表：每个节点是一根等电位线',
                 items: {
                   type: 'object',
@@ -483,6 +496,7 @@
                     name: { type: 'string', description: '节点名，如 L、N、A1' },
                     pins: {
                       type: 'array',
+                      minItems: 2,
                       items: { type: 'string' },
                       description: '属于这根线的引脚，如 ["SF1#0","no:QA1#0"]。#0 上脚，#1 下脚'
                     }
@@ -499,14 +513,16 @@
         type: 'function',
         function: {
           name: 'place_component',
-          description: '在图纸上放一个电气元件。必须给 branch（第几列，从 1 开始）：' +
-            '同一列自动往下排，不同列往右开新列。主回路一列、并联支路另一列。',
+          description: '在现有图纸上增量放一个电气元件。必须给 branch（第几列，从 1 开始）：' +
+            '同一列自动往下排，不同列往右开新列。主回路一列、并联支路另一列。' +
+            '新画一整张图请用 draw_plan，不要用它一个个摆。',
           parameters: {
             type: 'object',
             properties: {
-              type: { type: 'string', description: 'coil=接触器线圈, no=常开触点, nc=常闭触点, btnNo=按钮, btnNc=常闭按钮, fuse=熔断器, thermal=热继电器, motor=电机, lamp=信号灯' },
+              type: { type: 'string', enum: COMPONENT_TYPES, description: '元件类型' },
               key: { type: 'string', description: '代号，如 QA1、SF2（只写代号，不要带类型前缀）' },
-              branch: { type: 'number', description: '第几列，从 1 开始。主回路 1，右侧并联支路 2' },
+              branch: { type: 'number', minimum: 1, maximum: 6, description: '第几列，从 1 开始。主回路 1，右侧并联支路 2' },
+              poles: { type: 'number', minimum: 1, maximum: 6, description: '可选。三极元件只要一极时写 1' },
               align: { type: 'string', description: '可选。与被并联的元件同行（填它的代号），并联支路必须用它' },
               near: { type: 'string', description: '可选，放在哪个元件旁边（代号）' },
               side: { type: 'string', enum: ['right', 'left', 'below', 'above'] }
@@ -519,9 +535,14 @@
         type: 'function',
         function: {
           name: 'remove',
-          description: '删除一个元件（连带它的导线）',
+          description: '删除一个元件（连带它的导线）。ref 支持代号或 类型:代号；' +
+            '同名元件有多个时必须用 类型:代号，例如 no:QA1。',
           parameters: {
-            type: 'object', properties: { ref: { type: 'string' } }, required: ['ref']
+            type: 'object',
+            properties: {
+              ref: { type: 'string', description: '元件代号或 类型:代号，如 QA1、no:QA1' }
+            },
+            required: ['ref']
           }
         }
       },
@@ -529,14 +550,15 @@
         type: 'function',
         function: {
           name: 'wire_nodes',
-          description: '按节点表一次性连好整张图的线。把电路描述成"哪些引脚属于同一根线"，' +
-            '比逐个 connect 可靠得多，复杂图也不会漏。' +
+          description: '按节点表一次性连好现有的线。把电路描述成"哪些引脚属于同一根线"，' +
+            '比逐个 connect 可靠得多，复杂图也不会漏。draw_plan 已经连好线，不要重复调用。' +
             '同名元件必须带类型前缀：coil:QA1 是线圈，no:QA1 是自锁触点，nc:QA1 是常闭触点。',
           parameters: {
             type: 'object',
             properties: {
               nodes: {
                 type: 'array',
+                minItems: 1,
                 description: '节点列表，每个节点是一根等电位线',
                 items: {
                   type: 'object',
@@ -544,6 +566,7 @@
                     name: { type: 'string', description: '节点名，如 L、N、A' },
                     pins: {
                       type: 'array',
+                      minItems: 2,
                       items: { type: 'string' },
                       description: '属于这根线的引脚，如 ["SF1#0","no:QA1#0"]。#0 上脚，#1 下脚'
                     }
@@ -560,7 +583,8 @@
         type: 'function',
         function: {
           name: 'check',
-          description: '检查当前接线，返回电气问题列表',
+          description: '检查当前接线，返回电气问题列表。draw_plan 已自带自检，' +
+            '只在用户明确要求检查、或你想确认现有图时调用。',
           parameters: { type: 'object', properties: {} }
         }
       },
@@ -568,7 +592,8 @@
         type: 'function',
         function: {
           name: 'add_lead',
-          description: '从某个引脚引一段线出去（画母线、电源线、引出端用）',
+          description: '从某个引脚引一段线出去（画母线、电源线、引出端用）。' +
+            'draw_plan 会自动画母线和引出线，一般不需要单独调用。',
           parameters: {
             type: 'object',
             properties: {
@@ -585,7 +610,8 @@
         type: 'function',
         function: {
           name: 'clear_drawing',
-          description: '清空整张图纸（只在用户明确要求重画、清空时使用）',
+          description: '清空整张图纸。只在用户明确说“清空/重画”时使用；' +
+            '“再加一个/再放一个”是增量，不要清空。',
           parameters: { type: 'object', properties: {} }
         }
       }
@@ -762,65 +788,9 @@
         1000000 * PRICE.fx).toFixed(4);
   }
 
-  var SYS = '你是 PLC 电气图纸助手，把用户的中文意图变成画布上的电路图。\n' +
-    '\n【最重要的一条：画图只调一次 draw_plan】\n' +
-    'draw_plan 一次完成三件事：放元件 + 连线 + 自检，一轮就能出图。\n' +
-    '不要用 place_component 一个个放 —— 实测那样要十几轮，根本来不及连线，图会散着。\n' +
-    '只有"在现有图上加一个元件""删掉某个元件"这种小改动，才用 place_component / remove。\n' +
-    '\n【components 怎么写】\n' +
-    'type：coil 接触器线圈 / no 常开触点 / nc 常闭触点 / btnNo 按钮 / btnNc 常闭按钮 / ' +
-    'btnStop 急停 / limit 行程开关 / fuse 熔断器 / thermal 热继电器 / breaker 断路器 / ' +
-    'motor 电机 / lamp 信号灯 / bell 电铃 / contactor3 三极主触点\n' +
-    'branch：第几列，从 1 开始。同一列自动往下排成一条竖线，不同支路换列。\n' +
-    'align：并联在某个元件两端时填它的代号，让两者同一行（自锁触点就该这样放）。\n' +
-    'poles：三极元件只要一极时写 1（单线画法常用）。\n' +
-    '\n【nodes 怎么写】\n' +
-    '每个节点是一根等电位线，把属于同一根线的引脚全列进去。\n' +
-    '引脚格式 "代号#脚"，0 是上脚，1 是下脚。\n' +
-    '同名元件必须加类型前缀：coil:QA1 线圈、no:QA1 自锁触点、contactor3:QA1 主触点、nc:QA1 互锁触点。\n' +
-    '独占代号（SF1、FU1）直接写 SF1#0。\n' +
-    '\n【完整示例：正反转 + 主电路（熔断器、热继电器、电机）+ 自锁】\n' +
-    'draw_plan({\n' +
-    '  components: [\n' +
-    "    {type:'fuse',       key:'FU1', branch:1},\n" +
-    "    {type:'contactor3', key:'QA1', branch:1, poles:1},\n" +
-    "    {type:'thermal',    key:'FR1', branch:1, poles:1},\n" +
-    "    {type:'motor',      key:'M1',  branch:1},\n" +
-    "    {type:'btnNo',      key:'SF1', branch:2},\n" +
-    "    {type:'nc',         key:'QA2', branch:2},\n" +
-    "    {type:'coil',       key:'QA1', branch:2},\n" +
-    "    {type:'no',         key:'QA1', branch:3, align:'SF1'},\n" +
-    "    {type:'btnNo',      key:'SF2', branch:4},\n" +
-    "    {type:'nc',         key:'QA1', branch:4},\n" +
-    "    {type:'coil',       key:'QA2', branch:4},\n" +
-    "    {type:'no',         key:'QA2', branch:5, align:'SF2'}\n" +
-    '  ],\n' +
-    '  nodes: [\n' +
-    "    {name:'L',  pins:['FU1#0','SF1#0','SF2#0','no:QA1#0','no:QA2#0']},\n" +
-    "    {name:'P1', pins:['FU1#1','contactor3:QA1#0']},\n" +
-    "    {name:'P2', pins:['contactor3:QA1#1','FR1#0']},\n" +
-    "    {name:'P3', pins:['FR1#1','M1#0']},\n" +
-    "    {name:'A1', pins:['SF1#1','no:QA1#1','nc:QA2#0']},\n" +
-    "    {name:'A2', pins:['nc:QA2#1','coil:QA1#0']},\n" +
-    "    {name:'B1', pins:['SF2#1','no:QA2#1','nc:QA1#0']},\n" +
-    "    {name:'B2', pins:['nc:QA1#1','coil:QA2#0']},\n" +
-    "    {name:'N',  pins:['coil:QA1#1','coil:QA2#1']}\n" +
-    '  ]\n' +
-    '})\n' +
-    '\n【起保停（短版，照这个模式改就行）】\n' +
-    'components：btnNo(SF1,b1) / btnNc(SF2,b1) / coil(QA1,b1) / no(QA1,b2,align:SF1)\n' +
-    'nodes：L=[SF1#0,no:QA1#0]  A=[SF1#1,no:QA1#1,SF2#0]  B=[SF2#1,coil:QA1#0]\n' +
-    '\n【出错了怎么办】\n' +
-    'draw_plan 返回 ok:false 时，看 nodes 里带 X 的行，后面写着原因：\n' +
-    '· "找不到元件 X" → 该元件没放进 components，补上再调一次\n' +
-    '· "和节点 Y 被连成同一根线（短路）" → 两个节点被摆进同一列了，把它们分到不同 branch\n' +
-    '· "有 N 个引脚没接进这根线" → 引脚写错，检查 #0/#1 和类型前缀\n' +
-    '改一次就好，不要反复重试；仍然失败就如实说哪里卡住。\n' +
-    '\n【其他】\n' +
-    '· 每条请求都带「画布现状」，先读它：已有元件不要重复放；说"这个""它"指当前选中\n' +
-    '· 用户说"重画/清空"时给 clear:true；说"再加一个"是增量，不要 clear\n' +
-    '· wire_nodes 会自动画母线和引出线，不需要 add_lead\n' +
-    '回复用简短中文，说清做了什么、有没有没接上的地方，不要罗列工具名。';
+  // 人设卡与规则在 js/prompt.js，改提示词去那里改
+  var SYS = (global.PLCPrompt && global.PLCPrompt.SYS) ||
+    '你是 PLC 电气图纸助手，把用户的中文意图变成画布上的电路图。';
 
   /* ---------- 给模型看的画布快照 ----------
      模型看不见画布，必须每次把"现在有什么"压缩成几行喂进去，
@@ -1292,6 +1262,8 @@
     buildSelfLock: buildSelfLock,
     buildReverse: buildReverse,
     buildInterlock: buildInterlock,
+    toolSpecs: toolSpecs,
+    defaults: DEFAULTS,
     cfg: cfg,
     saveCfg: saveCfg
   };
