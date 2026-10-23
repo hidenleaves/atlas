@@ -310,7 +310,7 @@
     coil: {
       name: '接触器线圈', grp: 'coil', tryKey: 'QA',
       make: function (x, y) { return { x: x, y: y, h: 40, key: '' }; },
-      label: { ox: -20, oy: 15, anchor: 'end', size: 12 },
+      label: { ox: -26, oy: 15, anchor: 'end', size: 12 },
       pins: function (c) { return [[c.x, c.y], [c.x, c.y + c.h]]; },
       box: function (c) { return { x: c.x - 18, y: c.y - 6, w: 36, h: c.h + 12 }; },
       svg: function (c) { return SYMLIB.draw('coil', c.x, c.y, c.h); }
@@ -409,7 +409,7 @@
     kCoil: {
       name: '中间继电器线圈', grp: 'coil', tryKey: 'KA',
       make: function (x, y) { return { x: x, y: y, h: 40, key: '' }; },
-      label: { ox: -20, oy: 14, anchor: 'end', size: 12 },
+      label: { ox: -26, oy: 14, anchor: 'end', size: 12 },
       pins: function (c) { return [[c.x, c.y], [c.x, c.y + c.h]]; },
       box: function (c) { return { x: c.x - 18, y: c.y - 6, w: 36, h: c.h + 12 }; },
       svg: function (c) { return SYMLIB.draw('coil', c.x, c.y, c.h); }
@@ -417,7 +417,7 @@
     ktCoil: {
       name: '时间继电器线圈', grp: 'coil', tryKey: 'KT',
       make: function (x, y) { return { x: x, y: y, h: 40, key: '' }; },
-      label: { ox: -20, oy: 15, anchor: 'end', size: 12 },
+      label: { ox: -26, oy: 15, anchor: 'end', size: 12 },
       pins: function (c) { return [[c.x, c.y], [c.x, c.y + c.h]]; },
       box: function (c) { return { x: c.x - 18, y: c.y - 6, w: 36, h: c.h + 12 }; },
       svg: function (c) { return SYMLIB.draw('coilSlowO', c.x, c.y, c.h); }

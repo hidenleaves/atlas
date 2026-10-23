@@ -268,7 +268,10 @@
   function paint() {
     var d = st.doc;
     if (!d) return;
-    var inner = M.renderInner(d) + '<g class="ovl">' + overlaySvg() + '</g>';
+    var base = M.renderInner(d);   // 顺带把绑在引脚上的导线端点刷新到最新位置
+    // 诊断在这里同步算一次：画布标记和右侧面板共用，几十个元件 1ms 量级
+    st.adv = window.PLCAdvisor ? window.PLCAdvisor.analyze(d) : null;
+    var inner = base + '<g class="ovl">' + overlaySvg() + '</g>';
     el.canvas.innerHTML = M.svgWrap(d, inner);
     var svg = el.canvas.querySelector('svg');
     svg.classList.toggle('sim', !!st.sim);
@@ -354,6 +357,28 @@
     var r = selBox();
     if (r) o += '<rect class="sel-box" x="' + M.n(r.x) + '" y="' + M.n(r.y) +
       '" width="' + M.n(r.w) + '" height="' + M.n(r.h) + '"/>';
+
+    // 接线助手的问题标记：直接标在出问题的元件角上，不用来回看右栏
+    if (st.adv && st.adv.issues && st.adv.issues.length) {
+      var marked = 0;
+      st.adv.issues.forEach(function (it) {
+        if (marked >= 8 || it.level === 'info') return;
+        if (!it.target || it.target.kind !== 'comp') return;
+        var c = findComp(it.target.id);
+        if (!c) return;
+        var b = M.boxOf(c);
+        var mx = b.x + b.w + 3, my = b.y - 3;
+        var col = it.level === 'error' ? '#D6436B' : '#DE9C0E';
+        o += '<g class="adv-mark">' +
+          '<circle cx="' + M.n(mx) + '" cy="' + M.n(my) + '" r="7.2" fill="#FFFFFF" stroke="' +
+          col + '" stroke-width="1.5"/>' +
+          '<text x="' + M.n(mx) + '" y="' + M.n(my + 3.4) + '" font-size="9.5" font-weight="700" fill="' +
+          col + '" text-anchor="middle" font-family="' + M.SANS + '">' +
+          (it.level === 'error' ? '\u00d7' : '!') + '</text>' +
+          '</g>';
+        marked++;
+      });
+    }
 
     // 对齐参考线：拖元件时的共线提示
     if (st.guides && st.guides.length) {
@@ -1251,7 +1276,7 @@
       el.adv.innerHTML = '';
       return;
     }
-    var res = window.PLCAdvisor.analyze(st.doc);
+    var res = st.adv || window.PLCAdvisor.analyze(st.doc);
     st.adv = res;
 
     var dot = res.level === 'error' ? 'bad' : (res.level === 'warn' ? 'warn' : 'ok');
@@ -1268,6 +1293,13 @@
 
     if (!st.advOpen) { el.adv.innerHTML = head; return; }
 
+    // 能自动补的常见场景：点动回路还差一个自锁触点
+    var auto = canAutoSelfLock();
+    var act = auto
+      ? '<div class="adv-act"><span>差一个自锁触点</span>' +
+        '<button type="button" data-act="selflock">帮我放上</button></div>'
+      : '';
+
     var body = '';
     if (!res.issues.length) {
       body = '<div class="adv-empty">接法没问题，可以继续。</div>';
@@ -1283,12 +1315,81 @@
         body += '<div class="adv-more">另外还有 ' + (res.issues.length - 6) + ' 条</div>';
       }
     }
-    el.adv.innerHTML = head + '<div class="adv-body">' + body + '</div>';
+    el.adv.innerHTML = head + act + '<div class="adv-body">' + body + '</div>';
+  }
+
+  /* ---------- 一键补齐：给点动回路加自锁触点 ---------- */
+  function canAutoSelfLock() {
+    var res = st.adv;
+    if (!res || !res.intent || res.intent.key !== 'jog' || !st.doc) return null;
+    var btn = null, coil = null;
+    st.doc.comps.forEach(function (c) {
+      if (!btn && (c.type === 'btnNo' || (c.type === 'no' && /^S[A-Z]?/i.test(c.key || '')))) btn = c;
+      if (!coil && (c.type === 'coil' || c.type === 'kCoil') && c.key) coil = c;
+    });
+    if (!btn || !coil) return null;
+    // 已经同名的常开触点存在就不再多放
+    var has = st.doc.comps.some(function (c) {
+      return c.type === 'no' && c.key === coil.key;
+    });
+    if (has) return null;
+    return { btn: btn, coil: coil };
+  }
+
+  function occupiedAt(box) {
+    return st.doc.comps.some(function (c) {
+      var b = M.boxOf(c);
+      return !(b.x > box.x + box.w || b.x + b.w < box.x || b.y > box.y + box.h || b.y + b.h < box.y);
+    });
+  }
+
+  function wireBetween(a, b, ba, bb) {
+    var pts = [[a[0], a[1]]].concat(orthoPath([a[0], a[1]], [b[0], b[1]]));
+    var w = { id: M.uid('w'), pts: pts };
+    if (ba) w.a = ba;
+    if (bb) w.b = bb;
+    M.resolveWire(st.doc, w);
+    st.doc.wires.push(w);
+  }
+
+  function addSelfLock() {
+    var p = canAutoSelfLock();
+    if (!p) return;
+    var t = M.TYPES.no;
+    var probe = t.make(p.btn.x + 120, p.btn.y);
+    probe.type = 'no';
+    var tries = 0;
+    while (tries++ < 8 && occupiedAt(M.boxOf(probe))) {
+      probe.x += 70;
+      if (probe.x > st.doc.w - 90) { probe.x = p.btn.x - 120; }
+    }
+    var c = t.make(probe.x, probe.y);
+    c.type = 'no';
+    c.id = M.uid('c');
+    c.key = p.coil.key;
+    c.label = {
+      text: c.key, ox: t.label.ox, oy: t.label.oy,
+      anchor: t.label.anchor, size: t.label.size
+    };
+    st.doc.comps.push(c);
+
+    // 并联在按钮两端：按钮上脚 ↔ 自锁上脚，自锁下脚 ↔ 按钮下脚
+    var bp = M.pinsOfComp(p.btn), cp = M.pinsOfComp(c);
+    wireBetween(bp[0], cp[0], { c: p.btn.id, i: 0 }, { c: c.id, i: 0 });
+    wireBetween(cp[1], bp[1], { c: c.id, i: 1 }, { c: p.btn.id, i: 1 });
+
+    st.sel = { kind: 'comp', id: c.id };
+    commit();
+    paint();
+    renderInspector();
+    flash('已补上 ' + c.key + ' 自锁触点，并联在按钮两端');
   }
 
   function onAdvClick(e) {
     var tg = e.target.closest ? e.target.closest('.adv-toggle') : null;
     if (tg) { st.advOpen = !st.advOpen; renderAdvisor(); return; }
+    var ab = e.target.closest ? e.target.closest('.adv-act button') : null;
+    if (ab) { addSelfLock(); return; }
     var it = e.target.closest ? e.target.closest('.adv-item') : null;
     if (!it) return;
     var k = it.getAttribute('data-kind'), id = it.getAttribute('data-id');
