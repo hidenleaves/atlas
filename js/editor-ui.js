@@ -1239,7 +1239,7 @@
     _advT = setTimeout(renderAdvisor, 90);
   }
 
-  var ADV_ICON = { error: '✕', warn: '!', info: '·' };
+  var ADV_ICON = { error: '×', warn: '!', info: '·' };
 
   function escHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -119,13 +119,19 @@
   }
 
   /* ---------- 元件分类 ---------- */
-  var COILISH = {
-    coil: 1, kCoil: 1, ktCoil: 1, solenoid: 1,
-    motor: 1, lamp: 1, bell: 1, led: 1
-  };
+  // 这些元件必须有完整的往返回路（线圈得电靠两端）
+  var COILISH = { coil: 1, kCoil: 1, ktCoil: 1, solenoid: 1, lamp: 1, bell: 1, led: 1 };
   var PROTECT = { fuse: 1, fuse3: 1, fuseH: 1, thermal: 1, breaker: 1 };
   var CONTACT = { no: 1, nc: 1, btnNo: 1, btnNc: 1, btnStop: 1, limit: 1, prox: 1, contactor3: 1 };
+  // 只有接触器的辅助触点/主触点才必须"有同名线圈"；按钮、行程开关本身就是操作件，不需要
+  var NEED_COIL = { no: 1, nc: 1, contactor3: 1 };
   var MAIN = { motor: 1, contactor3: 1, thermal: 1, fuse3: 1, breaker: 1, switch3: 1 };
+
+  // 代号前缀判断：SF/SB/SQ 这类是"人去操作"的元件，不该有同名线圈。
+  // 图集里的按钮也是按 no 类型画的，只能靠代号区分，没法只看类型。
+  function isOperator(key) {
+    return /^(SF|SB|SQ|SA|SE|ST|SL)/i.test(String(key || ''));
+  }
 
   function tn(c) { return (M.TYPES[c.type] || {}).name || c.type; }
 
@@ -175,6 +181,8 @@
     /* --- 1. 引脚悬空 --- */
     var loose = [];
     built.pins.forEach(function (p) {
+      // 三相电机下端本来就不一定接线（星形/三角形在内部接好），只要求进线端接上
+      if (p.c.type === 'motor' && p.i > 0) return;
       var g = groups[net.find(p.key)];
       if (!g || g.wires.length === 0) loose.push(p);
     });
@@ -189,11 +197,12 @@
       var o = looseBy[k];
       var c = o.c;
       var label = c.key || tn(c);
-      // 单脚元件（接地）不算没接
-      if (M.pinsOfComp(c).length <= 1) return;
+      if (M.pinsOfComp(c).length <= 1) return;   // 单脚元件（接地）不算没接
       var all = o.idx.length === M.pinsOfComp(c).length;
+      // 线圈类只缺一端时交给第 6 条统一说，避免同一件事报两遍
+      if (COILISH[c.type] && !all) return;
       push(all ? 'warn' : 'info', 'loose',
-        label + ' ' + (all ? '还没接线' : (o.idx.length > 1 ? '两端都还空着' : '有一端还没接')),
+        label + ' ' + (all ? '还没接线' : '有一端还没接'),
         { kind: 'comp', id: c.id });
     });
 
@@ -259,8 +268,8 @@
     comps.forEach(function (c) {
       var k = (c.key || '').trim();
       if (!k) return;
-      if (COILISH[c.type] && c.type !== 'motor') coils[k] = (coils[k] || 0) + 1;
-      if (CONTACT[c.type]) contacts[k] = (contacts[k] || 0) + 1;
+      if (COILISH[c.type]) coils[k] = (coils[k] || 0) + 1;
+      if (NEED_COIL[c.type] && !isOperator(k)) contacts[k] = (contacts[k] || 0) + 1;
     });
     Object.keys(contacts).forEach(function (k) {
       if (!coils[k]) {
@@ -290,8 +299,9 @@
 
     /* --- 7. 未命名元件 --- */
     var unnamed = comps.filter(function (c) { return !c.key && c.type !== 'motor' && c.type !== 'plcBox'; });
-    if (unnamed.length) {
-      push('info', 'unnamed', '有 ' + unnamed.length + ' 个元件还没编代号', null);
+    if (unnamed.length && comps.length > unnamed.length) {
+      push('info', 'unnamed',
+        '还有 ' + unnamed.length + ' 个元件没代号（代号联动靠它识别，方便的话补上）', null);
     }
 
     /* --- 8. 意图模板：缺什么 --- */
@@ -312,6 +322,14 @@
           null);
       }
     }
+
+    // 同样的提示只说一次（同代号的多极元件会重复触发）
+    var seen = {};
+    issues = issues.filter(function (it) {
+      if (seen[it.msg]) return false;
+      seen[it.msg] = 1;
+      return true;
+    });
 
     // 排序：错误 > 提醒 > 提示
     var rank = { error: 0, warn: 1, info: 2 };

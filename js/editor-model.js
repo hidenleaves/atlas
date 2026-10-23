@@ -369,8 +369,9 @@
       name: '三相电动机', grp: 'main', tryKey: '',
       make: function (x, y) { return { cx: x, cy: y, r: 30, key: '' }; },
       label: null,
-      pins: function (c) { return [[c.cx, c.cy - c.r], [c.cx, c.cy + c.r]]; },
-      box: function (c) { var r = c.r + 9; return { x: c.cx - r, y: c.cy - r, w: r * 2, h: r * 2 }; },
+      // 环顶是三相进线点（图集里导线就接在这里），环底留给需要接零线时用
+      pins: function (c) { return [[c.cx, c.cy - c.r], [c.cx, c.cy]]; },
+      box: function (c) { return { x: c.cx - c.r - 2, y: c.cy - c.r * 2 - 2, w: c.r * 2 + 4, h: c.r * 2 + 4 }; },
       svg: function (c) { return SYMLIB.draw('motor3', c.cx, c.cy - c.r * 2, c.r * 8 / 3, { cls: 'motor' }); }
     },
     ground: {

@@ -111,6 +111,7 @@
     S.wire(RAILS[2], 276, RAILS[2], 302);
     S.wire(RAILS[0], 302, RAILS[0], 318);
     S.wire(RAILS[1], 302, RAILS[1], 318);
+    S.wire(RAILS[2], 302, RAILS[2], 318);
 
     S.thermal(RAILS, 318, 40);
     S.label(204, 338, 'BB', { mono: true });
