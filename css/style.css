@@ -982,3 +982,18 @@ input.pin:focus, input.pnum:focus {
   color: #3F444B; white-space: pre-wrap; word-break: break-all;
   background: #FCFCF8;
 }
+
+/* 回复来源标记：内置规则 / 模型 */
+.chat-via {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  line-height: 14px;
+  vertical-align: 1px;
+  letter-spacing: .02em;
+}
+.chat-via.rule { color: #7A828C; background: #F0F1EC; }
+.chat-via.model { color: #4A62C8; background: #EDF0FC; }

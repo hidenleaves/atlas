@@ -116,6 +116,36 @@
       '自锁触点并联在按钮两端，正转和反转两个回路已接好。';
   }
 
+  /* 纯互锁：两条支路各串一个对方的常闭触点。
+     和正反转的区别：互锁只是"两个不能同时吸合"，不换相序、不驱动电机。
+     之前把"互锁"并进正反转的触发词，用户说"画个互锁"却得到正反转 —— 这是错的。 */
+  function buildInterlock(doc) {
+    A.clear(doc);
+    A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
+    A.place(doc, 'nc', { key: 'QA2', branch: 1 });
+    A.place(doc, 'coil', { key: 'QA1', branch: 1 });
+    A.place(doc, 'btnNo', { key: 'SF2', branch: 2, align: 'SF1' });
+    A.place(doc, 'nc', { key: 'QA1', branch: 2 });
+    A.place(doc, 'coil', { key: 'QA2', branch: 2 });
+
+    var r = A.wireNodes(doc, [
+      { name: 'L', pins: ['SF1#0', 'SF2#0'] },
+      { name: 'A1', pins: ['SF1#1', 'nc:QA2#0'] },
+      { name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] },
+      { name: 'B1', pins: ['SF2#1', 'nc:QA1#0'] },
+      { name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] },
+      { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] }
+    ]);
+    doc.title = '互锁控制';
+    if (!r.ok) {
+      return '互锁画好了，但有几根线没接上：' +
+        r.nodes.filter(function (n) { return !n.ok; })
+          .map(function (n) { return n.node + '（' + n.error + '）'; }).join('；');
+    }
+    return '互锁画好了：SF1 和 SF2 各自串一个对方的常闭触点（nc:QA2 / nc:QA1），' +
+      '两个线圈不会同时吸合。这是纯互锁，不含主电路和自锁 —— 要正反转（换相序驱动电机）跟我说"画正反转"。';
+  }
+
   /* ---------------- 内置解析 ---------------- */
 
   function interpret(text, doc, ui) {
@@ -123,8 +153,21 @@
     if (!s) return null;
 
     // 清空
-    if (/(清空|清掉|全部删除|重来|新建)/.test(s) && !/(新建|重来).*(画|加)/.test(s)) {
+    // 清空：注意"清空，画一个互锁"是复合指令，清完还要接着画，
+    // 原来的写法直接 return，后半句就被吞了。
+    var mClear = s.match(/(清空|清掉|清除|全部删除)/);
+    if (mClear && !/(新建|重来).*(画|加)/.test(s)) {
+      var rest = s
+        .replace(/.*?(清空|清掉|清除|全部删除)[掉画布一下]*[，,。；;]?\s*/, '')
+        .replace(/^(然后|再|接着)/, '')
+        .trim();
       var n = A.clear(doc).removed;
+      if (rest.length >= 2) {
+        var sub = interpret(rest, doc, ui);
+        if (sub) {
+          return { reply: '清空了（' + n + ' 个元件）。' + sub.reply, changed: true };
+        }
+      }
       return { reply: '清空了，删掉 ' + n + ' 个元件。', changed: true };
     }
 
@@ -136,8 +179,17 @@
     if (/(画|做|建|生成|来个|帮我弄).*(点动)/.test(s) || /^点动/.test(s)) {
       return { reply: buildJog(doc), changed: true };
     }
+    // 否定式先说：不要正反转、只要互锁
+    if (/(不要|不用|别|不是).*(正反转|正反|可逆)/.test(s) && /互锁/.test(s)) {
+      return { reply: buildInterlock(doc), changed: true };
+    }
+    // 纯互锁：不换相序、不驱动电机。带主电路/电机要求的才算正反转
+    if (/(互锁|连锁)/.test(s) &&
+        !/(正反转|正反|可逆|主电路|电机|热继电器|熔断器|星三角|降压)/.test(s)) {
+      return { reply: buildInterlock(doc), changed: true };
+    }
     // 只接住"纯正反转"，带附加要求（主电路、热继电器、星三角…）的交给模型
-    if (/正反转|正反|互锁|可逆/.test(s) &&
+    if (/正反转|正反|可逆/.test(s) &&
         !/(主电路|热继电器|熔断器|电机|星三角|降压|再加|还要|同时)/.test(s)) {
       return { reply: buildReverse(doc), changed: true };
     }
@@ -674,7 +726,7 @@
     if (!c.apiKey && /deepseek|openai|moonshot|dashscope/i.test(c.endpoint || '')) {
       return Promise.resolve({
         reply: '还没填 API Key。点上面的「模型」把 key 填进去就能听懂更自由的描述了。',
-        changed: false
+        changed: false, via: 'rule'
       });
     }
 
@@ -693,7 +745,7 @@
         return Promise.resolve({
           reply: '我做了几步但没能收尾，画布上可能是散的。' +
             '你可以说"重画一个正反转"，我用内置模板直接出图。',
-          changed: touched
+          changed: touched, via: 'model'
         });
       }
       // 走到第 5 轮还没画完，直接把话挑明，别再放元件了
@@ -723,7 +775,7 @@
           return {
             reply: (acc.content || '').trim() || '完成。',
             changed: touched,
-            usage: acc.usage
+            usage: acc.usage, via: 'model'
           };
         }
 
@@ -774,7 +826,7 @@
         reply: '调用模型失败：' + e.message +
           '\n自查：① 点「模型」→「测试」看断在哪一层；② F12 → Network 看 net::ERR_xxx；③ 确认地址栏是 file:// 打开的文件。' +
           where,
-        changed: touched
+        changed: touched, via: 'model'
       };
     });
   }
@@ -814,6 +866,18 @@
     return d;
   }
 
+  // 让用户看得见这句是规则答的还是模型答的 ——
+  // 规则毫秒级、模型三五秒，标出来才不会以为是"卡了"或者"没走模型"。
+  function tagVia(node, via) {
+    var t = document.createElement('span');
+    t.className = 'chat-via ' + (via === 'model' ? 'model' : 'rule');
+    t.textContent = via === 'model' ? '模型' : '内置';
+    t.title = via === 'model'
+      ? '这句交给了 DeepSeek，能处理自由描述'
+      : '这句由内置规则直接处理，不用联网、毫秒级';
+    node.appendChild(t);
+  }
+
   function submit() {
     if (busy) return;
     var text = (el.input.value || '').trim();
@@ -848,18 +912,28 @@
         var b = bubble('bot', res.reply);
         if (res.usage) appendUsage(b, res.usage);
       }
+      var host = streamEl || b;
+      if (host && res.via) tagVia(host, res.via);
       if (res.changed && hooks.refresh) hooks.refresh();
       busy = false;
     }
 
     var local = interpret(text, doc, {});
-    if (local) { setTimeout(function () { done(local); }, 60); return; }
+    if (local) {
+      local.via = 'rule';
+      setTimeout(function () { done(local); }, 60);
+      return;
+    }
 
     callModel(text, doc, onText).then(function (res) {
       if (res) { done(res); return; }
+      // 分两种：说了"画…"但没配模型 → 告诉它为什么画不出来，别让用户以为是听不懂
+      var wantDraw = /(画|做|建|生成|来个|帮我弄)/.test(text);
       done({
-        reply: '这句话我还没学会。能试试："画一个起保停"、"加个自锁"、"放一个熔断器"、"把 QA1 接到 SF1"、"检查一下"。\n' +
-          '（想让我听懂更自由的描述，可以在设置里填模型地址）',
+        reply: wantDraw
+          ? '这句话要靠模型来画，但还没配 API Key。\n点标题栏的「模型」填一个 DeepSeek Key（只存本机），之后这类带附加要求的描述就能画。\n' +
+            '不填也行，内置模板认得这么说：画一个起保停 / 点动 / 互锁 / 正反转。'
+          : '这句话我还没学会。能试试："画一个起保停"、"画一个互锁"、"加个自锁"、"检查一下"。',
         changed: false
       });
     });

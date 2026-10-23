@@ -649,6 +649,8 @@
     doc.wires = [];
     doc.marks = [];
     doc.texts = [];
+    // 标题也归零，否则清空后还挂着上一张图的名字（"正反转控制"配一张空图）
+    doc.title = '未命名电路';
     return { ok: true, removed: n };
   };
 
