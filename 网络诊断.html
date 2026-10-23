@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PLC 画板 · 网络诊断</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 28px 40px;
+    font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    background: #F2F2EE; color: #14161A;
+  }
+  h1 { font-size: 18px; margin: 0 0 6px; font-weight: 600; }
+  .sub { font-size: 12.5px; color: #8E939B; margin-bottom: 20px; line-height: 1.7; }
+  .wrap { max-width: 760px; }
+  .env {
+    background: #fff; border: 1px solid #E3E3DB; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+    font-size: 12px; line-height: 1.9; color: #5C6169;
+  }
+  .env b { color: #2F343B; font-weight: 600; }
+  .row {
+    background: #fff; border: 1px solid #E3E3DB; border-radius: 10px;
+    padding: 12px 15px; margin-bottom: 9px;
+    display: flex; align-items: flex-start; gap: 12px;
+  }
+  .dot {
+    flex: 0 0 9px; width: 9px; height: 9px; border-radius: 50%;
+    margin-top: 5px; background: #C3C7CD;
+  }
+  .dot.ok { background: #2E9E6B; box-shadow: 0 0 0 3px rgba(46,158,107,.15); }
+  .dot.bad { background: #D6436B; box-shadow: 0 0 0 3px rgba(214,67,107,.15); }
+  .dot.wait { background: #DE9C0E; }
+  .body { flex: 1; min-width: 0; }
+  .name { font-size: 12.5px; font-weight: 600; color: #2F343B; }
+  .url {
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 10.5px; color: #8E939B; margin-top: 2px;
+    word-break: break-all;
+  }
+  .res { font-size: 11.5px; margin-top: 5px; line-height: 1.6; }
+  .res.ok { color: #1E7A56; }
+  .res.bad { color: #C33A5C; }
+  .res.wait { color: #A3700C; }
+  .bar { display: flex; gap: 8px; margin: 16px 0 18px; }
+  button {
+    height: 32px; padding: 0 15px; border-radius: 7px;
+    border: 1px solid #2447C9; background: #2447C9; color: #fff;
+    font-family: inherit; font-size: 12px; cursor: pointer;
+  }
+  button.ghost { background: #fff; color: #5C6169; border-color: #E3E3DB; }
+  button:hover { filter: brightness(1.06); }
+  .verdict {
+    margin-top: 18px; padding: 14px 16px;
+    background: #FBF5E7; border: 1px solid #EADFC2;
+    border-radius: 10px; font-size: 12px; line-height: 1.8; color: #6E5B33;
+  }
+  .verdict b { color: #8A5A0B; }
+  .verdict:empty { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>网络诊断</h1>
+  <div class="sub">
+    这个页面只做一件事：从你这个浏览器发几个探测请求，看看究竟断在哪一层。<br>
+    不会发送任何 key，也不会联网上传任何东西。跑完把结果截图发给开发者。
+  </div>
+
+  <div class="env" id="env"></div>
+
+  <div id="list"></div>
+
+  <div class="bar">
+    <button id="again">重新检测</button>
+    <button class="ghost" id="copy">复制结果</button>
+  </div>
+
+  <div class="verdict" id="verdict"></div>
+</div>
+
+<script>
+(function () {
+  var TARGETS = [
+    {
+      name: 'DeepSeek API（真正要用的）',
+      url: 'https://api.deepseek.com/v1/chat/completions',
+      method: 'POST',
+      tag: 'api'
+    },
+    {
+      name: 'DeepSeek 官网（同域对照）',
+      url: 'https://www.deepseek.com/',
+      method: 'GET',
+      tag: 'site'
+    },
+    {
+      name: '百度（公网对照）',
+      url: 'https://www.baidu.com/',
+      method: 'GET',
+      tag: 'public'
+    },
+    {
+      name: 'Ollama 本地服务（可选）',
+      url: 'http://127.0.0.1:11434/',
+      method: 'GET',
+      tag: 'local'
+    }
+  ];
+
+  var results = {};
+
+  function envInfo() {
+    var box = document.getElementById('env');
+    var rows = [
+      ['页面协议', location.protocol + '（origin: ' + (location.origin || 'null') + '）'],
+      ['浏览器', navigator.userAgent],
+      ['网络状态', navigator.onLine ? '浏览器认为在线' : '浏览器认为离线'],
+      ['Cookie 可用', navigator.cookieEnabled ? '是' : '否']
+    ];
+    box.innerHTML = rows.map(function (r) {
+      return '<div><b>' + r[0] + '</b>：' + r[1] + '</div>';
+    }).join('');
+  }
+
+  function render() {
+    var list = document.getElementById('list');
+    list.innerHTML = TARGETS.map(function (t) {
+      var r = results[t.tag] || { state: 'wait', text: '检测中…' };
+      return '<div class="row">' +
+        '<span class="dot ' + (r.state === 'ok' ? 'ok' : r.state === 'bad' ? 'bad' : 'wait') + '"></span>' +
+        '<div class="body">' +
+        '<div class="name">' + t.name + '</div>' +
+        '<div class="url">' + t.method + ' ' + t.url + '</div>' +
+        '<div class="res ' + (r.state === 'ok' ? 'ok' : r.state === 'bad' ? 'bad' : 'wait') + '">' +
+        r.text + '</div>' +
+        '</div></div>';
+    }).join('');
+  }
+
+  function probe(t) {
+    var t0 = Date.now();
+    var opt = { method: t.method, mode: 'no-cors', cache: 'no-store' };
+    if (t.method === 'POST') {
+      opt.headers = { 'Content-Type': 'text/plain' };
+      opt.body = '{}';
+    }
+    return fetch(t.url, opt).then(function () {
+      results[t.tag] = {
+        state: 'ok',
+        text: '通了（' + (Date.now() - t0) + ' ms）'
+      };
+    }).catch(function (e) {
+      results[t.tag] = {
+        state: 'bad',
+        text: '失败：' + (e.message || e.name) + '（' + (Date.now() - t0) + ' ms）'
+      };
+    }).then(function () {
+      render();
+    });
+  }
+
+  function verdict() {
+    var api = results.api || {};
+    var site = results.site || {};
+    var pub = results.public || {};
+    var local = results.local || {};
+    var v = document.getElementById('verdict');
+
+    if (api.state === 'ok') {
+      v.innerHTML = '<b>结论：API 通了。</b><br>' +
+        '如果画板里仍然报错，多半是填的接口地址或模型名不对，或者 key 有问题 —— ' +
+        '回到画板点「模型」→「测试」看具体是哪一步。';
+      return;
+    }
+
+    if (pub.state === 'bad') {
+      v.innerHTML = '<b>结论：这个浏览器连公网都不通。</b><br>' +
+        '不是 DeepSeek 的问题。按顺序排查：<br>' +
+        '① 浏览器扩展（广告拦截 / 隐私保护 / VPN 类）—— 开个无痕窗口再跑本页，若通了就是扩展；<br>' +
+        '② 安全软件（360、火绒、卡巴斯基等）的「HTTPS 扫描 / 网页防护」—— 临时关掉再试；<br>' +
+        '③ 公司网络或防火墙拦截 —— 换手机热点跑一次本页。';
+      return;
+    }
+
+    if (site.state === 'bad') {
+      v.innerHTML = '<b>结论：其它网站能开，但 deepseek.com 这个域名在这台机器上不通。</b><br>' +
+        '说明是域名层面的拦截（hosts、DNS、防火墙规则、或安全软件的网址黑名单）。<br>' +
+        '可以试试：<br>' +
+        '① 命令行执行 <code>ping api.deepseek.com</code> 与 <code>nslookup api.deepseek.com</code>，看是否解析到正常 IP；<br>' +
+        '② 检查 C:\\Windows\\System32\\drivers\\etc\\hosts 里有没有 deepseek 相关行；<br>' +
+        '③ 换手机热点验证。';
+      return;
+    }
+
+    v.innerHTML = '<b>结论：域名能通，但 API 请求被单独拦住了。</b><br>' +
+      '这种情况通常是浏览器扩展或安全软件针对 POST 请求的拦截，也可能是公司代理只放行了网页流量。<br>' +
+      '用无痕窗口跑一次本页，若 API 那条变通，就是扩展问题。';
+  }
+
+  function run() {
+    results = {};
+    render();
+    document.getElementById('verdict').innerHTML = '';
+    var chain = Promise.resolve();
+    TARGETS.forEach(function (t) {
+      chain = chain.then(function () { return probe(t); });
+    });
+    chain.then(function () {
+      setTimeout(verdict, 200);
+    });
+  }
+
+  document.getElementById('again').addEventListener('click', run);
+  document.getElementById('copy').addEventListener('click', function () {
+    var lines = ['PLC 画板网络诊断'];
+    lines.push('协议：' + location.protocol + ' | online=' + navigator.onLine);
+    lines.push('UA：' + navigator.userAgent);
+    TARGETS.forEach(function (t) {
+      var r = results[t.tag] || { text: '未检测' };
+      lines.push('- ' + t.name + '：' + r.text);
+    });
+    var box = document.getElementById('verdict').innerText;
+    if (box) lines.push('结论：' + box.replace(/\n+/g, ' '));
+    var txt = lines.join('\n');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(txt).then(function () {
+        alert('已复制，直接粘贴给开发者即可。');
+      }, function () { prompt('手动复制：', txt); });
+    } else {
+      prompt('手动复制：', txt);
+    }
+  });
+
+  envInfo();
+  run();
+})();
+</script>
+</body>
+</html>
