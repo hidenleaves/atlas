@@ -181,6 +181,114 @@ check('interpretV2：空画布加自锁给明确提示', function () {
   assert(r.changed === false, '不应改动');
 });
 
+/* ---------------- draw_plan 原子性 / 排序 ---------------- */
+
+check('draw_plan：无效类型在清空前被拦下，原图不动', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = A.drawPlan(doc, {
+    clear: true,
+    components: [{ type: 'nope', key: 'X', branch: 1 }],
+    nodes: []
+  });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(/没有这种元件/.test(r.error || ''), r.error);
+  assert(r.rolledBack === false, '校验阶段不应清空画布');
+  assert(doc.comps.length === before, '原图被改动');
+  assert(doc.title.indexOf('正反转') >= 0, '标题被清空');
+});
+
+check('draw_plan：align 目标不存在时提前报错，原图不动', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = A.drawPlan(doc, {
+    clear: true,
+    components: [{ type: 'no', key: 'QA9', branch: 1, align: 'SF404' }],
+    nodes: [{ name: 'A', pins: ['no:QA9#0', 'no:QA9#1'] }]
+  });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(r.placeErrors && /SF404/.test(r.placeErrors.join('；')), JSON.stringify(r.placeErrors));
+  assert(doc.comps.length === before, '原图被改动');
+});
+
+check('draw_plan：放置后连线失败会回滚整张图', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = A.drawPlan(doc, {
+    clear: true,
+    components: [{ type: 'coil', key: 'QA9', branch: 1 }],
+    nodes: [{ name: 'A', pins: ['coil:QA9#0', 'coil:QA9#1'] }]
+  });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(r.rolledBack === true, '应回滚');
+  assert(doc.comps.length === before, '回滚后元件数不对');
+  assert(doc.comps.some(function (c) { return c.key === 'QA1'; }), '原图没恢复');
+  assert(doc.title.indexOf('正反转') >= 0, '标题没恢复');
+});
+
+check('draw_plan：clear + 合法 plan 会替换原图', function () {
+  const doc = makeReverse(true, true);
+  doc.deco.push({ id: 'd1', kind: 'divider', x1: 0, y1: 0, x2: 0, y2: 100 });
+  const r = A.drawPlan(doc, {
+    clear: true,
+    components: [
+      { type: 'btnNo', key: 'SF9', branch: 1 },
+      { type: 'coil', key: 'QA9', branch: 3 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF9#0', 'coil:QA9#0'] },
+      { name: 'N', pins: ['SF9#1', 'coil:QA9#1'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.rolledBack === false, '不应回滚');
+  assert(doc.comps.length === 2, '应只剩新图 2 个元件');
+  assert(doc.comps.some(function (c) { return c.key === 'QA9'; }), '新图没落盘');
+  assert(doc.deco.length === 0, '旧虚线没清掉');
+});
+
+check('draw_plan：align 目标写在后面也能先放', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'no', key: 'QA1', branch: 2, align: 'SF1' },
+      { type: 'btnNo', key: 'SF1', branch: 1 },
+      { type: 'nc', key: 'QA2', branch: 1 },
+      { type: 'coil', key: 'QA1', branch: 1 },
+      { type: 'btnNo', key: 'SF2', branch: 3 },
+      { type: 'nc', key: 'QA1', branch: 3 },
+      { type: 'coil', key: 'QA2', branch: 3 },
+      { type: 'no', key: 'QA2', branch: 4, align: 'SF2' }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF1#0', 'SF2#0', 'no:QA1#0', 'no:QA2#0'] },
+      { name: 'A1', pins: ['SF1#1', 'no:QA1#1', 'nc:QA2#0'] },
+      { name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] },
+      { name: 'B1', pins: ['SF2#1', 'no:QA2#1', 'nc:QA1#0'] },
+      { name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] },
+      { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  const sf1 = doc.comps.filter(function (c) { return c.type === 'btnNo' && c.key === 'SF1'; })[0];
+  const qa1 = doc.comps.filter(function (c) { return c.type === 'no' && c.key === 'QA1'; })[0];
+  assert(sf1 && qa1, '元件没放上');
+  assert(Math.abs(M.anchorOf(sf1).y - M.anchorOf(qa1).y) < 0.6,
+    '自锁触点没有和按钮同行：' + M.anchorOf(sf1).y + ' vs ' + M.anchorOf(qa1).y);
+});
+
+check('draw_plan：没给 nodes 时文案不含 undefined', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [{ type: 'coil', key: 'QA9', branch: 1 }],
+    nodes: []
+  });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(r.wiring === '没有给 nodes', r.wiring);
+  assert(!/undefined/.test(String(r.wiring) + String(r.error)), r.wiring + ' / ' + r.error);
+  assert(r.rolledBack === true, '应回滚空图');
+});
+
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
 console.log('');

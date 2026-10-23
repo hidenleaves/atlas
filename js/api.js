@@ -350,16 +350,29 @@
   function pickBusY(doc, minY, maxY, x0, x1) {
     function clear(y) {
       if (y < 12) return false;
-      return !doc.comps.some(function (c) {
+      if (doc.comps.some(function (c) {
         var b = boxOf(c);
         if (b.x > x1 + 2 || b.x + b.w < x0 - 2) return false;
         return y > b.y + 6 && y < b.y + b.h - 6;
+      })) return false;
+      // 母线不能和已有水平线共线重叠：两条母线重叠会被并成一个网
+      return !doc.wires.some(function (w) {
+        var pts = w.pts || [];
+        for (var i = 0; i + 1 < pts.length; i++) {
+          var a = pts[i], b = pts[i + 1];
+          if (Math.abs(a[1] - b[1]) > 0.5 || Math.abs(a[1] - y) > 0.5) continue;
+          var lo = Math.min(a[0], b[0]), hi = Math.max(a[0], b[0]);
+          if (!(hi < x0 - 2 || lo > x1 + 2)) return true;
+        }
+        return false;
       });
     }
     var cands = [
       Math.round((minY - 26) / 10) * 10,
       Math.round((maxY + 26) / 10) * 10,
-      Math.round((minY + maxY) / 2 / 10) * 10
+      Math.round((minY + maxY) / 2 / 10) * 10,
+      Math.round((minY - 56) / 10) * 10,
+      Math.round((maxY + 56) / 10) * 10
     ];
     for (var i = 0; i < cands.length; i++) {
       if (clear(cands[i])) return cands[i];
@@ -483,9 +496,9 @@
             if (!valid[i].ok || !valid[j].ok) continue;
             if (netOf(valid[i]._list[0].pt) === netOf(valid[j]._list[0].pt)) {
               valid[i].ok = false;
-              valid[i].error = '和节点 ' + valid[j].name + ' 被连成了同一根线（短路）';
+              valid[i].error = '和节点 ' + (valid[j].node || valid[j].name) + ' 被连成了同一根线（短路）';
               valid[j].ok = false;
-              valid[j].error = '和节点 ' + valid[i].name + ' 被连成了同一根线（短路）';
+              valid[j].error = '和节点 ' + (valid[i].node || valid[i].name) + ' 被连成了同一根线（短路）';
             }
           }
         }
@@ -502,14 +515,100 @@
      为什么需要它：模型分十来次 place、再调 wire_nodes、再 check，
      一次请求就要几十秒，而多轮预算有限（实测 4 轮就把额度耗光了，
      wire_nodes 根本没轮到）。把三步合成一次调用，一轮就能出图。 */
+  /* 一次画完整张图：放元件 + 连线 + 自检。
+     原子性：先快照，失败就恢复——模型写错类型时不会把用户原图清空。 */
+  function restoreDoc(doc, snap) {
+    doc.comps = snap.comps;
+    doc.wires = snap.wires;
+    doc.marks = snap.marks;
+    doc.deco = snap.deco;
+    doc.texts = snap.texts;
+    doc.title = snap.title;
+    doc.no = snap.no;
+    doc.w = snap.w;
+    doc.h = snap.h;
+  }
+
+  // align / near 引用的元件必须先放；成环就报错，不硬摆。
+  // useDoc=false 时（clear:true）不能把即将被清掉的旧元件当成可引用目标。
+  function orderForRefs(comps, doc, useDoc) {
+    var pending = comps.slice(), out = [];
+    function ready(ref) {
+      if (useDoc && findRef(doc, ref)) return true;
+      return out.some(function (x) {
+        return x.key === ref || (x.type + ':' + x.key) === ref;
+      });
+    }
+    while (pending.length) {
+      var progress = false;
+      for (var i = 0; i < pending.length;) {
+        var c = pending[i];
+        var ref = c.align || c.near;
+        if (ref && !ready(ref)) { i++; continue; }
+        out.push(c);
+        pending.splice(i, 1);
+        progress = true;
+      }
+      if (!progress) return null;
+    }
+    return out;
+  }
+
   api.drawPlan = function (doc, plan) {
     plan = plan || {};
-    var comps = plan.components || [];
-    var nodes = plan.nodes || [];
-    var placed = [], errs = [];
+    var comps = Array.isArray(plan.components) ? plan.components : [];
+    var nodes = Array.isArray(plan.nodes) ? plan.nodes : [];
+    var errs = [];
+    var seen = {};
+
+    if (!Array.isArray(plan.components)) errs.push('components 必须是数组');
+    if (plan.nodes != null && !Array.isArray(plan.nodes)) errs.push('nodes 必须是数组');
 
     comps.forEach(function (c) {
       if (!c || !c.type) { errs.push('有元件没写 type'); return; }
+      if (!M.TYPES[c.type]) { errs.push('没有这种元件：' + c.type); return; }
+      if (c.key) {
+        var k = c.type + ':' + c.key;
+        if (seen[k]) errs.push('重复元件 ' + k + '，请换一个代号');
+        seen[k] = true;
+      }
+      var ref = c.align || c.near;
+      if (ref) {
+        var inDoc = !plan.clear && !!findRef(doc, ref);
+        var inPlan = comps.some(function (x) {
+          return x !== c && (x.key === ref || (x.type + ':' + x.key) === ref);
+        });
+        if (!inDoc && !inPlan) {
+          errs.push((c.key || c.type) + '：' + (c.align ? 'align' : 'near') + ' 目标 ' + ref + ' 不存在');
+        }
+      }
+    });
+
+    if (errs.length) {
+      return {
+        ok: false, placed: 0, placeErrors: errs,
+        error: '放置前检查失败：' + errs.join('；'),
+        wiring: '未执行', level: 'error', issues: [],
+        rolledBack: false, nodes: []
+      };
+    }
+
+    var ordered = orderForRefs(comps, doc, !plan.clear);
+    if (!ordered) {
+      return {
+        ok: false, placed: 0,
+        placeErrors: ['align/near 依赖成环，无法排序'],
+        error: '放置前检查失败：align/near 依赖成环',
+        wiring: '未执行', level: 'error', issues: [],
+        rolledBack: false, nodes: []
+      };
+    }
+
+    var snap = M.clone(doc);
+    if (plan.clear) api.clear(doc);
+
+    var placed = [];
+    ordered.forEach(function (c) {
       var r = api.place(doc, c.type, {
         key: c.key, branch: c.branch, align: c.align,
         near: c.near, side: c.side, poles: c.poles
@@ -518,22 +617,46 @@
       else errs.push((c.key || c.type) + '：' + r.error);
     });
 
-    var wr = nodes.length
-      ? api.wireNodes(doc, nodes)
-      : { ok: false, error: '没有给 nodes，元件放好了但一根线都没连', nodes: [] };
+    var wr;
+    if (nodes.length) {
+      wr = api.wireNodes(doc, nodes);
+    } else {
+      wr = { ok: false, error: '没有给 nodes，元件放好了但一根线都没连',
+             failed: 0, total: 0, nodes: [] };
+    }
 
     var an = api.analyze(doc);
+    var ok = errs.length === 0 && wr.ok && an.level !== 'error';
+
+    var wiring = !nodes.length ? '没有给 nodes'
+      : (wr.ok ? '全部连通' : (wr.failed || 0) + '/' + (wr.total || 0) + ' 个节点没连好');
+
+    var errorText;
+    if (errs.length) errorText = '放置失败：' + errs.join('；');
+    else if (!wr.ok) errorText = '连线失败：' + (wr.error || wiring);
+    else if (an.level === 'error') {
+      errorText = '电气检查发现错误：' + an.issues.filter(function (x) {
+        return x.level === 'error';
+      }).slice(0, 2).map(function (x) { return x.msg; }).join('；');
+    }
+
+    var rolledBack = false;
+    if (!ok && plan.rollback !== false) {
+      restoreDoc(doc, snap);
+      rolledBack = true;
+    }
 
     return {
-      ok: errs.length === 0 && wr.ok,
+      ok: ok,
       placed: placed.length,
       components: placed.join(','),
       placeErrors: errs.length ? errs : undefined,
-      wiring: wr.ok ? '全部连通' : (wr.failed + '/' + (wr.total || 0) + ' 个节点没连好'),
-      error: wr.error,
+      wiring: wiring,
+      error: errorText,
       nodes: wr.nodes,
       level: an.level,
-      issues: an.issues.slice(0, 6)
+      issues: an.issues.slice(0, 6),
+      rolledBack: rolledBack
     };
   };
 
@@ -779,6 +902,7 @@
     doc.comps = [];
     doc.wires = [];
     doc.marks = [];
+    doc.deco = [];
     doc.texts = [];
     // 标题也归零，否则清空后还挂着上一张图的名字（"正反转控制"配一张空图）
     doc.title = '未命名电路';

@@ -465,7 +465,7 @@
             '画新电路一律用它，不要用 place_component 一个个放。' +
             '元件按支路给 branch（第几列），连线用节点表（同一节点里的引脚属于同一根线）。' +
             '不要在只加一个元件时用它；返回 {ok, placed, wiring, nodes, issues}，' +
-            'ok:false 时读 nodes 里带 X 的行。',
+            'ok:false 时读 nodes 里带 X 的行。失败会回滚（rolledBack:true），不会留下半张图。',
           parameters: {
             type: 'object',
             properties: {
@@ -621,10 +621,8 @@
   function runTool(name, args, doc) {
     switch (name) {
       case 'place_component': return A.place(doc, args.type, args);
-      case 'draw_plan': {
-        if (args.clear) A.clear(doc);
-        return A.drawPlan(doc, args);
-      }
+      // clear 和失败回滚都在 drawPlan 内部处理，避免"先清空再失败"留下空图
+      case 'draw_plan': return A.drawPlan(doc, args);
       case 'connect': return A.connect(doc, args.from, args.to);
       case 'link': return A.link(doc, args.a, args.b);
       case 'add_self_lock': return A.addSelfLock(doc, args.coil, args.button);
@@ -828,10 +826,15 @@
     if (!r) return '{}';
     var o = {};
     ['ok', 'error', 'failed', 'total', 'key', 'id', 'type', 'x', 'y',
-      'removed', 'wiresRemoved', 'wireId', 'level', 'from', 'to', 'points']
+      'removed', 'wiresRemoved', 'wireId', 'level', 'from', 'to', 'points',
+      'rolledBack', 'placed', 'components', 'wiring']
       .forEach(function (k) {
         if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
       });
+    if (r.placeErrors) o.placeErrors = r.placeErrors.slice(0, 6);
+    if (typeof o.components === 'string' && o.components.length > 240) {
+      o.components = o.components.slice(0, 240) + '…';
+    }
     // wire_nodes 的失败原因全在 nodes 里，不传回去模型就只能看到 ok:false，
     // 它不知道该修哪个节点，于是重试或放弃 —— 这是"线连不上"没法自愈的主因。
     if (r.nodes) {
@@ -920,16 +923,26 @@
         });
 
         calls.forEach(function (call, i) {
+          if (!call.id) call.id = 'call_' + n + '_' + i;
+          // draw_plan 成功后，同一轮的 remove/place 等调用一律跳过，
+          // 否则会把刚画好的图删掉或改坏。仍要给每个 tool_call 回一条结果。
+          if (finished) {
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({ ok: false, error: 'draw_plan 已成功，跳过本轮剩余调用' })
+            });
+            return;
+          }
           var name = call.function.name;
           var args = {};
           try { args = JSON.parse(call.function.arguments || '{}'); } catch (e) {}
-          if (!call.id) call.id = 'call_' + n + '_' + i;
           var r;
           try { r = runTool(name, args, doc); }
           catch (e) { r = { ok: false, error: String(e.message || e) }; }
           if (r && r.ok) touched = true;
           // draw_plan 成功 = 图已经完整落盘，再让模型折腾只会把它改坏
-          if (name === 'draw_plan' && r && r.ok) finished = true;
+          if (name === 'draw_plan' && r && r.ok && r.level !== 'error') finished = true;
           dbg('tool', name + ' ' + (r && r.ok ? 'OK' : 'FAIL') + ' → ' +
             brief(r).slice(0, 260));
           messages.push({
