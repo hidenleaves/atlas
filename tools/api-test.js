@@ -145,11 +145,14 @@ check('interpretV2：别把互锁删了（否定操作）', function () {
   assert(doc.comps.length === before, '不应改动画布');
 });
 
-check('interpretV2：带主电路时交给模型（返回 null）', function () {
+check('interpretV2：正反转带主电路、熔断器、热继电器、自锁', function () {
   const doc = M.blank(760, 500);
   const r = C.interpretV2('正反转带主电路、熔断器、热继电器、自锁', doc);
-  assert(r === null, '应返回 null 交给模型');
-  assert(doc.comps.length === 0, '不应先清空画布');
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
+  assert(doc.comps.some(function (c) { return c.type === 'thermal'; }), '缺热继电器');
+  assert(doc.comps.some(function (c) { return c.type === 'fuse'; }), '缺熔断器');
+  assert(doc.comps.length >= 20, '元件数 ' + doc.comps.length);
 });
 
 check('interpretV2：没有互锁时，去除互锁 + 画正反转仍继续', function () {
@@ -193,9 +196,18 @@ check('interpretV2：画个正反转，不要自锁', function () {
   assert(/没有加自锁/.test(r.reply), r.reply);
 });
 
-check('interpretV2：主电路要交给模型（返回 null）', function () {
+check('interpretV2：画个正反转，主电路要', function () {
   const doc = M.blank(760, 500);
   const r = C.interpretV2('画个正反转，主电路要', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
+  assert(doc.comps.some(function (c) { return c.type === 'thermal'; }), '缺热继电器');
+  assert(doc.comps.length >= 20, '元件数 ' + doc.comps.length);
+});
+
+check('interpretV2：主电路不带热继电器交给模型', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画一个正反转带主电路不带热继电器', doc);
   assert(r === null, '应交给模型');
   assert(doc.comps.length === 0, '不应先改画布');
 });

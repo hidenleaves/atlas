@@ -34,6 +34,7 @@ reverse 两个开关：interlock 是否串互锁（默认 true）、selflock 是
 用户说“正反转不带互锁” → {kind:'reverse', interlock:false}，回复必须提示相间短路风险。
 需要主电路时再加 main:true：画熔断器、接触器主触点、热继电器、电机和相序交换；
 主电路固定是双重互锁 + 自锁，不能同时关互锁/自锁。
+用户明确不要热继电器 / 熔断器 / 自锁 / 互锁时，不要用 main:true，改用 draw_plan。
 星三角等模板外的图，用 draw_plan。
 draw_template 会替换当前图；失败会回滚。
 

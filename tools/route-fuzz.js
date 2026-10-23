@@ -80,6 +80,8 @@ ATTRS.forEach(function (a) {
 });
 
 [
+  { text: '正反转带主电路', expect: { op: 'draw', type: 'reverse', attrs: { main: true } } },
+  { text: '正反转带主电路不带热继电器', expect: { op: 'draw', type: 'reverse', attrs: { main: true, thermal: false } } },
   { text: '把 QA1 接到 SF1', expect: { op: 'connect', from: 'QA1', to: 'SF1' } },
   { text: '删掉 QA1', expect: { op: 'remove', key: 'QA1' } },
   { text: '放一个熔断器', expect: { op: 'place', component: 'fuse' } },

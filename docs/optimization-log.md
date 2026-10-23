@@ -185,6 +185,18 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：`npm test` 全过，Edge iframe PASS。
 
+## 第 16 轮 · 23:58
+
+主题：正反转带主电路离线化。
+
+- `route.js` 的绘制步骤增加 `explicit` 标记：记录用户是否明确提到了某个属性。
+- `canRunStep`：`main:true` 直接走固定主电路模板；用户明确不要热继电器 / 熔断器 / 自锁 / 互锁时仍交给模型。
+- `execStep` 把 `main` 传给 `drawTemplate`；提示词和 README 同步说明固定版边界。
+- 新增 route 52 / fuzz 99 用例；真页面：`画一个正反转带主电路` 出 26 元件，
+  `不带热继电器` 保持空图并提示配置模型。
+
+验证：route 52/52、fuzz 99/99、api 38/38、template 8/8、prompt 36/36；Edge `main=true / negative=true / PASS`。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -205,6 +217,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 16. ~~模板画廊测试 + 两地控制意图识别。~~（第 12 轮完成）
 17. ~~路由组合回归（97 条确定性用例）。~~（第 14 轮完成）
 18. ~~模板库一键入口（6 个模板）。~~（第 15 轮完成）
+19. ~~正反转带主电路离线化（明确去掉元件时交模型）。~~（第 16 轮完成）
 
 ## 参考
 

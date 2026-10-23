@@ -341,6 +341,13 @@
         op: 'draw',
         type: subject,
         attrs: attrs,
+        explicit: {
+          main: !!(attrPos.main || attrNeg.main),
+          fuse: !!(attrPos.fuse || attrNeg.fuse),
+          thermal: !!(attrPos.thermal || attrNeg.thermal),
+          selflock: !!(attrPos.selflock || attrNeg.selflock),
+          interlock: !!(attrPos.interlock || attrNeg.interlock)
+        },
         replace: opKey !== 'add',
         clear: clearFlag,
         confidence: opKey ? conf : 0.85
@@ -444,6 +451,7 @@
           component: s.component || null, key: s.key || null,
           from: s.from || null, to: s.to || null,
           attrs: s.attrs || null,
+          explicit: s.explicit || null,
           replace: s.replace !== false,
           clear: !!s.clear,
           reason: s.reason || ''

@@ -59,6 +59,14 @@ const CASES = [
   { text: '检查一下', expect: { op: 'check' } },
 
   { text: '画布上有什么', expect: { ok: false } },
+  { text: '正反转带主电路', expect: {
+    op: 'draw', type: 'reverse',
+    attrs: { main: true }
+  } },
+  { text: '正反转带主电路不带热继电器', expect: {
+    op: 'draw', type: 'reverse',
+    attrs: { main: true, thermal: false }
+  } },
   { text: '正反转带主电路、熔断器、热继电器、自锁', expect: {
     op: 'draw', type: 'reverse',
     attrs: { main: true, fuse: true, thermal: true, selflock: true }

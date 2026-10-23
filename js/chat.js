@@ -210,7 +210,16 @@
     var at = s.attrs || {};
     if (s.op === 'draw') {
       if (s.replace === false) return false;   // "加一个正反转"交给模型，别清空重画
-      if (s.type === 'reverse') return !at.main && !at.fuse && !at.thermal;
+      if (s.type === 'reverse') {
+        if (!at.main) return !at.fuse && !at.thermal;
+        // 主电路模板是固定版；用户明确不要其中某个元件时交给模型
+        var ex = s.explicit || {};
+        if (ex.fuse && at.fuse === false) return false;
+        if (ex.thermal && at.thermal === false) return false;
+        if (ex.selflock && at.selflock === false) return false;
+        if (ex.interlock && at.interlock === false) return false;
+        return true;
+      }
       if (s.type === 'interlock') return !at.main && !at.fuse && !at.thermal && !at.selflock;
       if (s.type === 'selflock') return !at.main && !at.fuse && !at.thermal && !at.interlock;
       if (s.type === 'jog') return !at.main && !at.fuse && !at.thermal && !at.interlock && !at.selflock;
@@ -314,6 +323,7 @@
       var o = s.attrs || {};
       var top = { kind: s.type };
       if (s.type === 'reverse') {
+        top.main = !!o.main;
         top.interlock = o.interlock !== false;
         top.selflock = o.selflock !== false;
       }
