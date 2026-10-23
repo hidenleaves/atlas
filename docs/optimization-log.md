@@ -149,13 +149,24 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：模板 8/8 全部 `level=ok`；`npm test` 全过（route 50、api 37、template 8、prompt 36）。
 
+## 第 13 轮 · 23:53
+
+主题：移动端 / 无障碍。
+
+- `max-width: 640px` 时聊天面板铺满可视宽度、最大高度 62vh，快捷 chips 可滚动、不横向溢出。
+- 增加 `:focus-visible` 外框和 `prefers-reduced-motion`（关闭闪光和刀口动画）。
+- 对话区补 `role="region"`、`aria-label`、`aria-live="polite"`。
+- 390×844 iframe 测试：面板 `339×271` 在视口内，快捷区 `scrollWidth=clientWidth`，`RESULT=PASS`。
+
+验证：`npm test` 全过，Edge 窄屏 iframe PASS。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
 2. ~~电源端子检查（advisor warn）与“无法判断回路闭合”措辞。~~（第 3 轮完成）
 3. ~~`draw_template` 工具，让模型和内置路由共用参数化模板。~~（第 4 轮完成）
 4. 星三角 / 降压启动模板（主电路/正反转/两地控制已覆盖；星三角仍待做）。
-5. UI：~~错误定位~~（第 8 轮完成）、~~对话快捷指令/空状态~~（第 9 轮完成）、移动端。
+5. UI：~~错误定位~~（第 8 轮完成）、~~对话快捷指令/空状态~~（第 9 轮完成）、~~移动端/无障碍~~（第 13 轮完成）。
 6. ~~测试与 CI：GitHub Actions 跑 route / api / prompt 测试。~~（第 6 轮完成）
 7. ~~README / 使用说明。~~（第 7 轮完成）
 8. 参考开源：QElectroTech（符号/连线）、OpenPLC/Beremiz（IEC 61131-3）。

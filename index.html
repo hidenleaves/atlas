@@ -227,8 +227,8 @@
   <div class="ctxmenu" id="edMenu" hidden></div>
 
   <div class="chat" id="edChat">
-    <button class="chat-fab" id="chatFab" title="用一句话画电路">AI</button>
-    <div class="chat-panel" id="chatPanel" hidden>
+    <button class="chat-fab" id="chatFab" title="用一句话画电路" aria-label="打开对话作图">AI</button>
+    <div class="chat-panel" id="chatPanel" role="region" aria-label="对话作图" hidden>
       <div class="chat-head">
         <b>对话作图</b>
         <span>说一句，我画到画布上</span>
@@ -246,10 +246,10 @@
           <button id="cfgSave">保存</button>
         </div>
       </div>
-      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-log" id="chatLog" aria-live="polite"></div>
       <div class="chat-stat" id="chatStat" hidden></div>
       <div class="chat-in">
-        <input id="chatInput" placeholder="画一个互锁 / 起保停 / 正反转 / 加个自锁">
+        <input id="chatInput" aria-label="输入作图指令" placeholder="画一个互锁 / 起保停 / 正反转 / 加个自锁">
         <button id="chatSend">发送</button>
       </div>
       <div class="chat-dbg" id="chatDbg" hidden>
