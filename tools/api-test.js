@@ -183,6 +183,23 @@ check('interpretV2：空画布加自锁给明确提示', function () {
   assert(r.changed === false, '不应改动');
 });
 
+check('interpretV2：画个正反转，不要自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，不要自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '线圈数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁应保留');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '不应有自锁');
+  assert(/没有加自锁/.test(r.reply), r.reply);
+});
+
+check('interpretV2：主电路要交给模型（返回 null）', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，主电路要', doc);
+  assert(r === null, '应交给模型');
+  assert(doc.comps.length === 0, '不应先改画布');
+});
+
 /* ---------------- draw_plan 原子性 / 排序 ---------------- */
 
 check('draw_plan：无效类型在清空前被拦下，原图不动', function () {

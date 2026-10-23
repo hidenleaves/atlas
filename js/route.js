@@ -219,6 +219,13 @@
       t.neg = countNegs(clause.slice(from, t.at)) % 2 === 1;
     });
 
+    // 后置否定：主电路不要 / 互锁不要。
+    // 只有后面没有别的 token 时才翻转；"正反转不要互锁"里的"不要"属于互锁。
+    tokens.forEach(function (t, idx) {
+      if (t.kind !== 'term' || tokens[idx + 1]) return;
+      if (countNegs(clause.slice(t.end)) % 2 === 1) t.neg = !t.neg;
+    });
+
     // 把字句："别把互锁删了"否定的是"删"，不是"互锁"。
     var ba = clause.indexOf('把');
     if (ba >= 0) {
@@ -281,6 +288,16 @@
     var opKey = posOps.length ? posOps[0].key : null;
     var multiOp = uniq(posOps.map(function (o) { return o.key; })).length > 1;
     var conf = multiOp ? 0.6 : 0.95;
+
+    // 只有属性、没有主体/动词：交给 route 合并到上一张绘制步骤
+    if (!subject && !opKey) {
+      var patch = {};
+      Object.keys(attrPos).forEach(function (k) { patch[k] = true; });
+      Object.keys(attrNeg).forEach(function (k) { patch[k] = false; });
+      if (Object.keys(patch).length) {
+        return { op: 'attrs', attrs: patch, confidence: 0.8 };
+      }
+    }
 
     /* ---- 按动词优先 ---- */
 
@@ -371,10 +388,25 @@
     var steps = [];
     clauses.forEach(function (c) {
       var r = parseClause(c);
-      if (r) steps.push(r);
+      if (!r) return;
+      if (r.op === 'attrs') {
+        // 附着到上一张绘制步骤；没有就忽略（比如单独一句"主电路不要"）
+        for (var i = steps.length - 1; i >= 0; i--) {
+          if (steps[i].op === 'draw') {
+            var at = steps[i].attrs || {};
+            Object.keys(r.attrs).forEach(function (k) { at[k] = r.attrs[k]; });
+            steps[i].attrs = at;
+            return;
+          }
+        }
+        return;
+      }
+      steps.push(r);
     });
 
-    var meaningful = steps.filter(function (s) { return s.op && s.op !== 'none'; });
+    var meaningful = steps.filter(function (s) {
+      return s.op && s.op !== 'none' && s.op !== 'attrs';
+    });
     if (!meaningful.length) {
       if (steps.length) return finalize(steps[0], steps, 0.9);
       return { ok: false, reason: '没有识别出可执行的操作', confidence: 0, steps: [] };

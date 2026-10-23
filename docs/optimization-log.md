@@ -114,6 +114,19 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：`npm test` 全过，Edge iframe PASS。
 
+## 第 10 轮 · 23:48
+
+主题：后置否定 + 跨子句属性合并。
+
+- `route.js` 支持后置否定：“正反转主电路不要”“互锁不要”。
+- 只有属性、没有主体/动词的子句会生成 `attrs` 步骤，附着到上一张 `draw`：
+  “画个正反转，不要自锁” → reverse + selflock=false。
+- 新增 11 条路由用例，覆盖属性合并、复合指令、否定和前置否定，route 48/48。
+- `interpretV2` 端到端：reverse 不带自锁时 `no=0 / nc=2 / coils=2`，回复包含“没有加自锁”。
+- 真页面 iframe 测试 `RESULT=PASS`。
+
+验证：`npm test` 全过（route 48、api 34、prompt 34），Edge iframe PASS。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -129,6 +142,8 @@ CI：`ce6df0c` 复查为 `completed / success`。
 11. `draw_template` 的主电路模板目前复用图集固定版，后续可参数化熔断器/热继电器。
 12. 主电路模板的可编辑性回归：多极元件、重复 `type:key` 的选中/删除。
 13. ~~首次 GitHub Actions 运行结果确认（push 后查 API）。~~（第 6 轮完成，success）
+14. 跨子句属性前置（“主电路要，画个正反转”）暂不合并到下一张图。
+15. 复合指令多步骤属性合并边界（“画个正反转然后别画互锁”）。
 
 ## 参考
 
