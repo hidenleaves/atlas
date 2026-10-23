@@ -14,6 +14,7 @@ global.window = global;
 require('../js/editor-model.js');
 require('../js/advisor.js');
 require('../js/api.js');
+require('../js/circuits.js');
 global.PLCRoute = require('../js/route.js');
 const P = require('../js/prompt.js');
 global.PLCPrompt = P;

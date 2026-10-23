@@ -90,11 +90,46 @@
     };
   }
 
+  /* ---------------- 正反转 + 主电路 ----------------
+     复用图集 1-12「双重互锁正反转」的标准图：主电路 + 控制电路 + 端子。
+     比手摆三相主电路稳，也保证主电路和控制电路的符号/代号一致。 */
+  function reverseMain(doc) {
+    var A = api();
+    var M = root.PLCEditorModel;
+    var CC = root.PLCCircuits;
+    if (!A || !M || !CC) return fail('reverse', '', '主电路模板依赖未加载');
+    var circ = null;
+    (CC.list || []).forEach(function (c) { if (c.id === 'rev-double') circ = c; });
+    if (!circ) return fail('reverse', '', '找不到正反转主电路模板');
+
+    var d = M.fromCircuit(circ);
+    A.clear(doc);
+    doc.comps = d.comps;
+    doc.wires = d.wires;
+    doc.marks = d.marks;
+    doc.deco = d.deco;
+    doc.texts = d.texts;
+    doc.w = d.w;
+    doc.h = d.h;
+    doc.title = '正反转 + 主电路';
+    return {
+      ok: true, kind: 'reverse', title: doc.title,
+      reply: '正反转 + 主电路画好了：熔断器、接触器主触点、热继电器、电机、相序交换，' +
+        '控制回路是双重互锁。'
+    };
+  }
+
   /* ---------------- 正反转（可关互锁 / 自锁） ---------------- */
   function reverse(doc, opts) {
     var A = api();
     if (!A) return fail('reverse', '', '画板 API 未加载');
     opts = opts || {};
+    if (opts.main) {
+      if (opts.interlock === false || opts.selflock === false) {
+        return fail('reverse', '', '主电路模板固定是双重互锁 + 自锁，不能单独关闭互锁或自锁');
+      }
+      return reverseMain(doc);
+    }
     var lock = opts.interlock !== false;
     var self = opts.selflock !== false;
     A.clear(doc);

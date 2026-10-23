@@ -57,19 +57,31 @@
 
 验证：prompt 32/32、route 37/37、api 29/29、Edge headless `reverse=true / interlock=true / route=true / tools=true / PASS`。
 
+## 第 5 轮 · 21:35
+
+主题：正反转 + 主电路模板。
+
+- `templates.js` 新增 `reverseMain`：通过 `PLCEditorModel.fromCircuit` 复用图集 1-12「双重互锁正反转」。
+- 一条模板同时产出主电路（隔离开关、熔断器、接触器主触点、热继电器、电机、相序交换、接地）和控制回路，并带 L/N 端子。
+- `draw_template` 新增 `main:true`（reverse 专用）；主电路固定是双重互锁 + 自锁，不能单独关互锁/自锁。
+- 提示词和 schema 同步说明；主电路模板与图集共用同一套符号和代号。
+
+验证：prompt 34/34、route 37/37、api 31/31、Edge headless `26 元件 / 10 主触点 / 5 端子 / level=ok / PASS`。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
 2. ~~电源端子检查（advisor warn）与“无法判断回路闭合”措辞。~~（第 3 轮完成）
 3. ~~`draw_template` 工具，让模型和内置路由共用参数化模板。~~（第 4 轮完成）
-4. 更多模板：星三角 / 主电路组合。
+4. 星三角 / 降压启动模板（主电路组合已由第 5 轮覆盖正反转）。
 5. UI：错误定位、空状态引导、移动端。
 6. 测试与 CI：GitHub Actions 跑 route / api / prompt 测试。
 7. README / 使用说明。
 8. 参考开源：QElectroTech（符号/连线）、OpenPLC/Beremiz（IEC 61131-3）。
 9. `wireNodes` 侧向引出：避免母线引出线穿过同列其他引脚。
 10. 端子落点优化：目前放节点首引脚，后续可放到母线端点并自动避让元件。
-11. `draw_template` 的主电路 / 星三角模板（当前仍走 draw_plan）。
+11. `draw_template` 的主电路模板目前复用图集固定版，后续可参数化熔断器/热继电器。
+12. 主电路模板的可编辑性回归：多极元件、重复 `type:key` 的选中/删除。
 
 ## 参考
 

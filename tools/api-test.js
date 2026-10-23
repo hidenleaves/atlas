@@ -14,6 +14,7 @@ global.window = global;
 require('../js/editor-model.js');
 require('../js/advisor.js');
 require('../js/api.js');
+require('../js/circuits.js');
 global.PLCRoute = require('../js/route.js');
 global.PLCPrompt = require('../js/prompt.js');
 global.PLCTemplates = require('../js/templates.js');
@@ -327,6 +328,32 @@ check('draw_template：未知模板回滚原图', function () {
   assert(r.ok === false, JSON.stringify(r));
   assert(/没有这种模板/.test(r.error || ''), r.error);
   assert(r.rolledBack === true, '应回滚');
+  assert(doc.comps.length === before, '原图被改动');
+});
+
+check('draw_template：正反转 + 主电路', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'reverse', main: true });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
+  assert(doc.comps.some(function (c) { return c.type === 'thermal'; }), '缺热继电器');
+  assert(doc.comps.some(function (c) { return c.type === 'fuse'; }), '缺熔断器');
+  assert(doc.comps.some(function (c) { return c.type === 'switch3'; }), '缺隔离开关');
+  assert(doc.marks.some(function (m) { return m.kind === 'term'; }), '缺端子');
+  const mains = doc.comps.filter(function (c) {
+    return c.type === 'no' && (c.key === 'QA1' || c.key === 'QA2');
+  });
+  assert(mains.length >= 6, '主触点数量=' + mains.length);
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.level === 'error'; }), JSON.stringify(an.issues));
+});
+
+check('draw_template：主电路模板不允许关闭互锁', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = A.drawTemplate(doc, { kind: 'reverse', main: true, interlock: false });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(/固定/.test(r.error || ''), r.error);
   assert(doc.comps.length === before, '原图被改动');
 });
 

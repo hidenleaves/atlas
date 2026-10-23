@@ -464,6 +464,11 @@
               selflock: {
                 type: 'boolean',
                 description: 'reverse 专用：是否带自锁触点，默认 true'
+              },
+              main: {
+                type: 'boolean',
+                description: 'reverse 专用：同时画教材版主电路（熔断器、接触器主触点、热继电器、电机、相序交换）。' +
+                  '主电路固定是双重互锁 + 自锁，不能再单独关互锁/自锁。'
               }
             },
             required: ['kind']

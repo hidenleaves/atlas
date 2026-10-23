@@ -14,6 +14,7 @@ global.window = global;
 require('../js/editor-model.js');
 require('../js/advisor.js');
 require('../js/api.js');
+require('../js/circuits.js');
 global.PLCRoute = require('../js/route.js');
 const P = require('../js/prompt.js');
 global.PLCPrompt = P;
@@ -82,6 +83,9 @@ const tmpl = specs.filter(function (t) { return t.function.name === 'draw_templa
 check('draw_template 有 kind enum',
   !!(tmpl && Array.isArray(tmpl.function.parameters.properties.kind.enum) &&
      tmpl.function.parameters.properties.kind.enum.indexOf('reverse') >= 0));
+check('draw_template 有 main 开关',
+  !!(tmpl && tmpl.function.parameters.properties.main));
+check('SYS 提到 main:true', SYS.indexOf('main:true') >= 0);
 
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
