@@ -83,37 +83,60 @@
   /* 正反转：两条支路各自串一个对方的常闭触点做互锁，各带一个自锁触点。
      这是教材里的标准画法，也是"复杂图"的入门档 —— 内置一份，
      模型不给力时至少这条路能立刻出图。 */
-  function buildReverse(doc) {
+  function buildReverse(doc, opts) {
+    opts = opts || {};
+    var lock = opts.interlock !== false;   // 默认串对方的常闭触点
+    var self = opts.selflock !== false;    // 默认带自锁触点
     A.clear(doc);
+
     // branch 1：正转支路（按钮 → 反转互锁 → 正转线圈）
     A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
-    A.place(doc, 'nc', { key: 'QA2', branch: 1 });
+    if (lock) A.place(doc, 'nc', { key: 'QA2', branch: 1 });
     A.place(doc, 'coil', { key: 'QA1', branch: 1 });
     // branch 2：SF1 的自锁触点，与 SF1 同行
-    A.place(doc, 'no', { key: 'QA1', branch: 2, align: 'SF1' });
+    if (self) A.place(doc, 'no', { key: 'QA1', branch: 2, align: 'SF1' });
+
     // branch 3：反转支路
     A.place(doc, 'btnNo', { key: 'SF2', branch: 3 });
-    A.place(doc, 'nc', { key: 'QA1', branch: 3 });
+    if (lock) A.place(doc, 'nc', { key: 'QA1', branch: 3 });
     A.place(doc, 'coil', { key: 'QA2', branch: 3 });
     // branch 4：SF2 的自锁触点
-    A.place(doc, 'no', { key: 'QA2', branch: 4, align: 'SF2' });
+    if (self) A.place(doc, 'no', { key: 'QA2', branch: 4, align: 'SF2' });
 
-    var r = A.wireNodes(doc, [
-      { name: 'L', pins: ['SF1#0', 'SF2#0', 'no:QA1#0', 'no:QA2#0'] },
-      { name: 'A1', pins: ['SF1#1', 'no:QA1#1', 'nc:QA2#0'] },
-      { name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] },
-      { name: 'B1', pins: ['SF2#1', 'no:QA2#1', 'nc:QA1#0'] },
-      { name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] },
-      { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] }
-    ]);
-    doc.title = '正反转控制';
+    // 没有互锁时，按钮下端直接接线圈上端；有互锁时中间隔一层常闭触点
+    var L = ['SF1#0', 'SF2#0'];
+    if (self) L.push('no:QA1#0', 'no:QA2#0');
+
+    var A1 = ['SF1#1'];
+    if (self) A1.push('no:QA1#1');
+    if (lock) A1.push('nc:QA2#0'); else A1.push('coil:QA1#0');
+
+    var B1 = ['SF2#1'];
+    if (self) B1.push('no:QA2#1');
+    if (lock) B1.push('nc:QA1#0'); else B1.push('coil:QA2#0');
+
+    var nodes = [{ name: 'L', pins: L }, { name: 'A1', pins: A1 }];
+    if (lock) nodes.push({ name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] });
+    nodes.push({ name: 'B1', pins: B1 });
+    if (lock) nodes.push({ name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] });
+    nodes.push({ name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] });
+
+    var r = A.wireNodes(doc, nodes);
+    doc.title = '正反转控制' + (lock ? '' : '（不带互锁）') + (self ? '' : '（不带自锁）');
     if (!r.ok) {
       return '正反转画好了，但有几根线没接上：' +
         r.nodes.filter(function (n) { return !n.ok; })
           .map(function (n) { return n.node + '（' + n.error + '）'; }).join('；');
     }
-    return '正反转画好了：SF1 正转、SF2 反转，各串对方的常闭触点做互锁（正转时不能反转），' +
-      '自锁触点并联在按钮两端，正转和反转两个回路已接好。';
+
+    var msg = '正反转画好了：SF1 正转、SF2 反转';
+    msg += lock ? '，各串对方的常闭触点做互锁（正转时不能反转）' : '，按你的要求没有串互锁';
+    msg += self ? '，自锁触点并联在按钮两端' : '，没有加自锁触点';
+    msg += '，正转和反转两个回路已接好。';
+    if (!lock) {
+      msg += '\n注意：没有互锁时两个接触器可能同时吸合，造成相间短路，实际接线必须加互锁。';
+    }
+    return msg;
   }
 
   /* 纯互锁：两条支路各串一个对方的常闭触点。
@@ -264,6 +287,147 @@
   function autoCoilKey(doc) {
     var c = doc.comps.filter(function (x) { return /coil/i.test(x.type); })[0];
     return c ? c.key : null;
+  }
+
+  /* ---------------- 路由 v2：解析 → 执行 ----------------
+     route.js 只把话解析成 intent，这里才碰画布。
+     规则接不住的（主电路、星三角、复杂组合）返回 null，交给模型。 */
+  var ROUTE_V2 = true;
+
+  function canRunStep(s) {
+    if (!s || s.op === 'none') return true;
+    var at = s.attrs || {};
+    if (s.op === 'draw') {
+      if (s.replace === false) return false;   // "加一个正反转"交给模型，别清空重画
+      if (s.type === 'reverse') return !at.main && !at.fuse && !at.thermal;
+      if (s.type === 'interlock') return !at.main && !at.fuse && !at.thermal && !at.selflock;
+      if (s.type === 'selflock') return !at.main && !at.fuse && !at.thermal && !at.interlock;
+      if (s.type === 'jog') return !at.main && !at.fuse && !at.thermal && !at.interlock && !at.selflock;
+      return false;   // 星三角等暂时交给模型
+    }
+    if (s.op === 'add') return s.object === 'selflock';
+    if (s.op === 'remove') return s.object === 'interlock' || !!s.key || !!s.component;
+    return true;
+  }
+
+  function execStep(s, doc, text) {
+    if (!s || s.op === 'none') {
+      return { reply: '好的，不动。', changed: false, ok: true };
+    }
+    if (s.op === 'clear') {
+      var n = A.clear(doc).removed;
+      return { reply: '清空了，删掉 ' + n + ' 个元件。', changed: true, ok: true };
+    }
+    if (s.op === 'check') {
+      var chk = A.analyze(doc);
+      if (chk.ok) return { reply: '检查过了，接法没问题。', changed: false, ok: true };
+      return {
+        reply: '发现 ' + chk.issues.length + ' 处：\n' +
+          chk.issues.map(function (x) { return '· ' + x.msg; }).join('\n'),
+        changed: false, ok: true
+      };
+    }
+    if (s.op === 'connect') {
+      var c = A.connect(doc, s.from, s.to);
+      return c.ok
+        ? { reply: '接好了：' + c.from + ' → ' + c.to + '。', changed: true, ok: true }
+        : { reply: '没连上：' + (c.error || '未知原因'), changed: false, ok: false };
+    }
+    if (s.op === 'remove') {
+      if (s.object === 'interlock') {
+        var ri = A.removeInterlock(doc);
+        // 复合指令里"没有互锁可删"不该挡住后面的"再画个正反转"
+        if (!ri.ok) return { reply: (ri.error || '没找到互锁触点') + '。', changed: false, ok: true };
+        return {
+          reply: '去掉了互锁触点：' + ri.removed.join('、') + '，并把两侧重新接通。',
+          changed: true, ok: true
+        };
+      }
+      if (s.key) {
+        var d = A.remove(doc, s.key);
+        return d.ok
+          ? { reply: '删掉了 ' + d.removed + '，连带 ' + d.wiresRemoved + ' 根线一起清理。', changed: true, ok: true }
+          : { reply: d.error || '没找到 ' + s.key, changed: false, ok: false };
+      }
+      if (s.component) {
+        var list = doc.comps.filter(function (x) { return x.type === s.component; });
+        if (list.length === 1) {
+          var d2 = A.remove(doc, list[0].id);
+          return d2.ok
+            ? { reply: '删掉了 ' + (list[0].key || typeName(s.component)) + '。', changed: true, ok: true }
+            : { reply: d2.error || '删除失败', changed: false, ok: false };
+        }
+        if (!list.length) {
+          return { reply: '图上没有' + typeName(s.component) + '。', changed: false, ok: false };
+        }
+        return {
+          reply: '图上有 ' + list.length + ' 个' + typeName(s.component) + '，请说具体代号。',
+          changed: false, ok: false
+        };
+      }
+      return { reply: '没说删什么。', changed: false, ok: false };
+    }
+    if (s.op === 'place') {
+      var pr = A.place(doc, s.component, { key: s.key || undefined });
+      return pr.ok
+        ? {
+            reply: '放了' + pr.name + (pr.key ? '（' + pr.key + '）' : '') + '。',
+            changed: true, ok: true
+          }
+        : { reply: pr.error || '放不上去', changed: false, ok: false };
+    }
+    if (s.op === 'add' && s.object === 'selflock') {
+      var km = String(text || '').match(/(QA|KA|KT)\d+/i);
+      var coilKey = km ? km[0].toUpperCase() : autoCoilKey(doc);
+      if (!coilKey) {
+        return { reply: '图上还没有线圈，先画一个回路再加自锁。', changed: false, ok: false };
+      }
+      var ar = A.addSelfLock(doc, coilKey, null);
+      if (!ar.ok) return { reply: '没补上：' + (ar.error || '找不到线圈'), changed: false, ok: false };
+      if (ar.skipped) return { reply: ar.skipped, changed: false, ok: true };
+      return {
+        reply: '给 ' + ar.key + ' 补了常开触点，并联在按钮两端，现在松手也能保持。',
+        changed: true, ok: true
+      };
+    }
+    if (s.op === 'draw') {
+      if (s.type === 'reverse') {
+        var o = s.attrs || {};
+        return {
+          reply: buildReverse(doc, {
+            interlock: o.interlock !== false,
+            selflock: o.selflock !== false
+          }),
+          changed: true, ok: true
+        };
+      }
+      if (s.type === 'interlock') return { reply: buildInterlock(doc), changed: true, ok: true };
+      if (s.type === 'selflock') return { reply: buildSelfLock(doc), changed: true, ok: true };
+      if (s.type === 'jog') return { reply: buildJog(doc), changed: true, ok: true };
+    }
+    return null;
+  }
+
+  function interpretV2(text, doc) {
+    if (!global.PLCRoute) return null;
+    var r = global.PLCRoute.route(text);
+    if (!r || !r.ok) return null;
+
+    var steps = r.steps && r.steps.length ? r.steps : [r];
+    // 先整体校验，避免"清空"执行完才发现后面画不了
+    for (var i = 0; i < steps.length; i++) {
+      if (!canRunStep(steps[i])) return null;
+    }
+
+    var replies = [], changed = false;
+    for (var j = 0; j < steps.length; j++) {
+      var res = execStep(steps[j], doc, text);
+      if (!res) return null;
+      replies.push(res.reply);
+      changed = changed || res.changed;
+      if (!res.ok) break;
+    }
+    return { reply: replies.join('\n'), changed: changed };
   }
 
   /* ---------------- 模型接入（可选） ---------------- */
@@ -918,7 +1082,7 @@
       busy = false;
     }
 
-    var local = interpret(text, doc, {});
+    var local = ROUTE_V2 ? interpretV2(text, doc) : interpret(text, doc, {});
     if (local) {
       local.via = 'rule';
       setTimeout(function () { done(local); }, 60);
@@ -928,7 +1092,8 @@
     callModel(text, doc, onText).then(function (res) {
       if (res) { done(res); return; }
       // 分两种：说了"画…"但没配模型 → 告诉它为什么画不出来，别让用户以为是听不懂
-      var wantDraw = /(画|做|建|生成|来个|帮我弄)/.test(text);
+      var wantDraw = /(画|做|建|生成|来个|帮我弄)/.test(text) &&
+        !/(画布|画板|有什么|是什么)/.test(text);
       done({
         reply: wantDraw
           ? '这句话要靠模型来画，但还没配 API Key。\n点标题栏的「模型」填一个 DeepSeek Key（只存本机），之后这类带附加要求的描述就能画。\n' +
@@ -1122,8 +1287,11 @@
   global.PLCChat = {
     mount: mount,
     interpret: interpret,
+    interpretV2: interpretV2,
     buildJog: buildJog,
     buildSelfLock: buildSelfLock,
+    buildReverse: buildReverse,
+    buildInterlock: buildInterlock,
     cfg: cfg,
     saveCfg: saveCfg
   };

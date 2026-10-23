@@ -1,0 +1,172 @@
+#!/usr/bin/env node
+/* ============================================================
+   api-test.js — 路由 v2 / 模板 / removeInterlock 的 Node 回归
+   ------------------------------------------------------------
+   用 window shim 加载 editor-model / advisor / api / chat，
+   不碰 DOM，验证：
+     · buildReverse 的互锁、自锁开关
+     · removeInterlock 删除 + 旁路
+     · interpretV2 的端到端执行
+   ============================================================ */
+'use strict';
+
+global.window = global;
+require('../js/editor-model.js');
+require('../js/advisor.js');
+require('../js/api.js');
+global.PLCRoute = require('../js/route.js');
+require('../js/chat.js');
+
+const M = global.PLCEditorModel;
+const A = global.PLCApi;
+const C = global.PLCChat;
+
+let pass = 0, fail = 0;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg || 'assert failed');
+}
+
+function check(name, fn) {
+  try {
+    fn();
+    pass++;
+    console.log('✓ ' + name);
+  } catch (e) {
+    fail++;
+    console.log('✗ ' + name);
+    console.log('  ' + (e && e.message || e));
+  }
+}
+
+function makeReverse(lock, self) {
+  const doc = M.blank(760, 500);
+  C.buildReverse(doc, { interlock: lock, selflock: self });
+  return doc;
+}
+
+function coilLoose(doc) {
+  return A.analyze(doc).issues.filter(function (it) {
+    return /QA[12]/.test(it.msg) && /悬空|只接了一端|还没接线/.test(it.msg);
+  });
+}
+
+check('正反转默认：2 个互锁 nc、2 个自锁 no', function () {
+  const doc = makeReverse(true, true);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, 'nc 数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, 'no 数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, 'coil 数量');
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.level === 'error'; }), JSON.stringify(an.issues));
+  assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+});
+
+check('正反转不带互锁：0 个 nc，线圈仍接两端', function () {
+  const doc = makeReverse(false, true);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, 'nc 应被省略');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁应保留');
+  assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+});
+
+check('正反转不带自锁：0 个 no，支路仍通', function () {
+  const doc = makeReverse(true, false);
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, 'no 应被省略');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁应保留');
+  assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+});
+
+check('去除互锁：删 2 个 nc，旁路接通两支路', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.wires.length;
+  const r = A.removeInterlock(doc);
+  assert(r.ok, r.error);
+  assert(r.removed.length === 2, JSON.stringify(r));
+  assert(r.bypassed === 2, 'bypassed=' + r.bypassed);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, 'nc 未删净');
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '线圈被误删');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁被误删');
+  assert(doc.wires.length < before, '导线未减少');
+  assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+});
+
+check('没有互锁时再去除：明确报错，不动其他元件', function () {
+  const doc = makeReverse(false, true);
+  const before = doc.comps.length;
+  const r = A.removeInterlock(doc);
+  assert(r.ok === false && /没找到/.test(r.error), JSON.stringify(r));
+  assert(doc.comps.length === before, '不应改动画布');
+});
+
+check('interpretV2：画一个互锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画一个互锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '线圈数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁数量');
+  assert(!coilLoose(doc).length, JSON.stringify(coilLoose(doc)));
+});
+
+check('interpretV2：正反转不带互锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('正反转不带互锁', doc);
+  assert(r && /没有串互锁/.test(r.reply), JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, 'nc 应被省略');
+});
+
+check('interpretV2：去除互锁', function () {
+  const doc = makeReverse(true, true);
+  const r = C.interpretV2('去除互锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, 'nc 未删净');
+});
+
+check('interpretV2：别把互锁删了（否定操作）', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = C.interpretV2('别把互锁删了', doc);
+  assert(r && r.changed === false, JSON.stringify(r));
+  assert(doc.comps.length === before, '不应改动画布');
+});
+
+check('interpretV2：带主电路时交给模型（返回 null）', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('正反转带主电路、熔断器、热继电器、自锁', doc);
+  assert(r === null, '应返回 null 交给模型');
+  assert(doc.comps.length === 0, '不应先清空画布');
+});
+
+check('interpretV2：没有互锁时，去除互锁 + 画正反转仍继续', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('把互锁去掉，再画个正反转', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '应画出正反转');
+  assert(/没找到互锁触点/.test(r.reply), '应提示没找到互锁');
+});
+
+check('interpretV2：清空 + 画一个互锁', function () {
+  const doc = makeReverse(true, true);
+  const r = C.interpretV2('清空，画一个互锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '应重画互锁');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '互锁模板不该有自锁');
+});
+
+check('interpretV2：加一个正反转交给模型，不清空', function () {
+  const doc = makeReverse(true, true);
+  const before = doc.comps.length;
+  const r = C.interpretV2('加一个正反转', doc);
+  assert(r === null, '应返回 null 交给模型');
+  assert(doc.comps.length === before, '不应清空或改动');
+});
+
+check('interpretV2：空画布加自锁给明确提示', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('加个自锁', doc);
+  assert(r && /还没有线圈/.test(r.reply), JSON.stringify(r));
+  assert(r.changed === false, '不应改动');
+});
+
+console.log('');
+console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
+console.log('');
+process.exit(fail ? 1 : 0);

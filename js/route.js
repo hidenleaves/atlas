@@ -407,7 +407,10 @@
           op: s.op, type: s.type || null, object: s.object || null,
           component: s.component || null, key: s.key || null,
           from: s.from || null, to: s.to || null,
-          attrs: s.attrs || null, reason: s.reason || ''
+          attrs: s.attrs || null,
+          replace: s.replace !== false,
+          clear: !!s.clear,
+          reason: s.reason || ''
         };
       })
     };

@@ -576,6 +576,117 @@
     return { ok: true, removed: key, wiresRemoved: before - doc.wires.length };
   };
 
+  /* 删除互锁触点：只有"nc 触点 + 图上有同名线圈"才算互锁。
+     删完必须把触点两侧重新接通，否则支路会断；这里做一次旁路。 */
+  function samePoint(a, b) {
+    return !!a && !!b && Math.abs(a[0] - b[0]) < 0.5 && Math.abs(a[1] - b[1]) < 0.5;
+  }
+
+  function bindExists(doc, bind) {
+    if (!bind) return false;
+    if (bind.c) return doc.comps.some(function (c) { return c.id === bind.c; });
+    if (bind.m) return doc.marks.some(function (m) { return m.id === bind.m; });
+    return false;
+  }
+
+  api.removeInterlock = function (doc) {
+    var coilKeys = {};
+    doc.comps.forEach(function (c) {
+      if (/coil/i.test(c.type) && c.key) coilKeys[c.key] = true;
+    });
+
+    var victims = doc.comps.filter(function (c) {
+      return c.type === 'nc' && c.key && coilKeys[c.key];
+    });
+    if (!victims.length) return { ok: false, error: '图上没找到互锁触点' };
+
+    var ids = {};
+    var victimPins = {};
+    victims.forEach(function (c) {
+      ids[c.id] = true;
+      victimPins[c.id] = pinsOf(c);
+    });
+
+    // 一条线接在触点的某个脚上时，返回它另一端（旁路要接的地方）
+    function farEnd(w, victimId, pinIdx) {
+      var pts = w.pts || [];
+      if (pts.length < 2) return null;
+      var vPin = victimPins[victimId][pinIdx];
+      var atA = w.a && w.a.c === victimId && w.a.i === pinIdx;
+      var atB = w.b && w.b.c === victimId && w.b.i === pinIdx;
+      if (!atA && !atB) {
+        atA = samePoint(pts[0], vPin);
+        atB = samePoint(pts[pts.length - 1], vPin);
+      }
+      if (atA) return { pt: pts[pts.length - 1], bind: w.b || null };
+      if (atB) return { pt: pts[0], bind: w.a || null };
+      return null;
+    }
+
+    // 先记下每个触点两端各自连着谁，再删
+    var plan = [];
+    victims.forEach(function (c) {
+      var ps = victimPins[c.id];
+      var ends = [];
+      for (var i = 0; i < ps.length; i++) {
+        var picked = null;
+        doc.wires.forEach(function (w) {
+          if (!picked) picked = farEnd(w, c.id, i);
+        });
+        if (picked) ends.push(picked);
+      }
+      plan.push({ ends: ends });
+    });
+
+    doc.comps = doc.comps.filter(function (c) { return !ids[c.id]; });
+
+    var before = doc.wires.length;
+    doc.wires = doc.wires.filter(function (w) {
+      if (w.a && ids[w.a.c]) return false;
+      if (w.b && ids[w.b.c]) return false;
+      var pts = w.pts || [];
+      if (!pts.length) return true;
+      for (var vid in ids) {
+        var ps = victimPins[vid];
+        for (var i = 0; i < ps.length; i++) {
+          if (samePoint(pts[0], ps[i]) || samePoint(pts[pts.length - 1], ps[i])) return false;
+        }
+      }
+      return true;
+    });
+    var wiresRemoved = before - doc.wires.length;
+
+    // 旁路：把触点原来两端重新接通
+    var bypassed = 0;
+    plan.forEach(function (p) {
+      if (p.ends.length < 2) return;
+      var a = p.ends[0], b = p.ends[1];
+      if (samePoint(a.pt, b.pt)) return;
+      if (sameNet(doc, a.pt, b.pt)) return;
+
+      if (a.bind && a.bind.c && b.bind && b.bind.c &&
+          bindExists(doc, a.bind) && bindExists(doc, b.bind)) {
+        var r = api.connect(doc, a.bind.c + '#' + a.bind.i, b.bind.c + '#' + b.bind.i);
+        if (r.ok) { bypassed++; return; }
+      }
+
+      var w = { id: M.uid('w'), pts: [[a.pt[0], a.pt[1]]].concat(ortho(a.pt, b.pt)) };
+      if (bindExists(doc, a.bind)) w.a = a.bind;
+      if (bindExists(doc, b.bind)) w.b = b.bind;
+      M.resolveWire(doc, w);
+      doc.wires.push(w);
+      bypassed++;
+    });
+
+    return {
+      ok: true,
+      removed: victims.map(function (c) { return c.type + ':' + c.key; }),
+      comps: victims.length,
+      wiresRemoved: wiresRemoved,
+      bypassed: bypassed
+    };
+  };
+
   api.move = function (doc, ref, x, y) {
     var c = findRef(doc, ref);
     if (!c) return { ok: false, error: '找不到元件 ' + ref };
