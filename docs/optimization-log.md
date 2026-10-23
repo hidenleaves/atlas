@@ -160,6 +160,20 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：`npm test` 全过，Edge 窄屏 iframe PASS。
 
+## 第 14 轮 · 23:54
+
+主题：路由组合回归。
+
+- 新增 `tools/route-fuzz.js`：动词 × 类型 × 否定 × 属性 + 固定命令，共 97 条确定性组合。
+- 校验 `ok / steps / op / type / confidence / attrs` 字段合法性，并断言关键语义：
+  - 各模板的 type；
+  - 否定类型的 `ok:false`；
+  - 属性否定的 `attrs` 值；
+  - 清空 + 绘制、接线、删除、放置、检查等固定命令。
+- `npm test` 和 CI 加入 route-fuzz。
+
+验证：fuzz 97/97 通过；`npm test` 全过（route 50、fuzz 97、api 37、template 8、prompt 36）。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -178,6 +192,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 14. 跨子句属性前置（“主电路要，画个正反转”）暂不合并到下一张图。
 15. 复合指令多步骤属性合并边界（“画个正反转然后别画互锁”）。
 16. ~~模板画廊测试 + 两地控制意图识别。~~（第 12 轮完成）
+17. ~~路由组合回归（97 条确定性用例）。~~（第 14 轮完成）
 
 ## 参考
 
