@@ -268,6 +268,31 @@
           description: '检查当前接线，返回电气问题列表',
           parameters: { type: 'object', properties: {} }
         }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_lead',
+          description: '从某个引脚引一段线出去（画母线、电源线、引出端用）',
+          parameters: {
+            type: 'object',
+            properties: {
+              ref: { type: 'string', description: '元件代号，如 SF1' },
+              pin: { type: 'number', description: '0=上脚，1=下脚，默认 0' },
+              dir: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: '引出方向' },
+              length: { type: 'number', description: '长度像素，默认 60' }
+            },
+            required: ['ref', 'dir']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'clear_drawing',
+          description: '清空整张图纸（只在用户明确要求重画、清空时使用）',
+          parameters: { type: 'object', properties: {} }
+        }
       }
     ];
   }
@@ -280,6 +305,20 @@
       case 'add_self_lock': return A.addSelfLock(doc, args.coil, args.button);
       case 'remove': return A.remove(doc, args.ref);
       case 'check': return A.analyze(doc);
+      case 'clear_drawing': return A.clear(doc);
+      case 'add_lead': {
+        var pin = args.pin == null ? 0 : args.pin;
+        var pr = A.pins(doc, args.ref + '#' + pin);
+        if (!pr.ok) return pr;
+        var pt = pr.pins[pin] || pr.pins[0];
+        var len = args.length || 60;
+        var x = pt.x, y = pt.y;
+        if (args.dir === 'up') y -= len;
+        else if (args.dir === 'down') y += len;
+        else if (args.dir === 'left') x -= len;
+        else x += len;
+        return A.lead(doc, args.ref, pin, x, y);
+      }
       default: return { ok: false, error: '没有这个工具 ' + name };
     }
   }
@@ -315,6 +354,11 @@
   }
 
   var SYS = '你是 PLC 电气图纸助手，帮用户把中文意图变成画布上的电路。\n' +
+    '每次请求都会带一条【画布现状】，先读它再动手：\n' +
+    '· 已经存在的元件不要重复放，注意用已有代号\n' +
+    '· 用户说"这个""它"时指「当前选中」的那个元件\n' +
+    '· 说"加一个""再来"是在现有基础上做增量，不要清空\n' +
+    '· 只有用户明确说"重画/清空"才调用 clear 类操作\n' +
     '规则：只能调用工具完成，绝对不要自己编造坐标或引脚位置，几何由画板计算。\n' +
     '元件 type：coil 接触器线圈、kCoil 中间继电器线圈、ktCoil 时间继电器线圈、' +
     'no 常开触点、nc 常闭触点、btnNo 按钮、btnNc 常闭按钮、btnStop 急停、limit 行程开关、' +
@@ -323,7 +367,57 @@
     '→ link(SF1,SF2) → link(SF2,QA1) → add_self_lock(QA1, SF1)。\n' +
     '画正反转：两个按钮(SF1/SF2)、两个线圈(QA1/QA2)，每个线圈回路串一个对方的常闭触点做互锁，' +
     '先用 place_component 放好元件，再用 link 串起来，最后 check 一遍。\n' +
-    '做完必须调用 check，如果还有 error 就修到没有为止。回复用简短中文，说清做了什么。';
+    '做完必须调用 check，如果还有 error 就修到没有为止。' +
+    '画完记得用 add_lead 给回路上端和下端各引一段线（母线），否则图是悬空的。' +
+    '回复用简短中文，说清做了什么，不要罗列工具名。';
+
+  /* ---------- 给模型看的画布快照 ----------
+     模型看不见画布，必须每次把"现在有什么"压缩成几行喂进去，
+     否则它会重复放元件、认不出"这个""它"，也可能把已有的线再连一遍。 */
+  function snapshot(doc, sel) {
+    var M = global.PLCEditorModel;
+    var names = doc.comps.map(function (c) {
+      var nm = c.key || '未命名';
+      return nm + '(' + c.type + ')';
+    });
+    var shown = names.slice(0, 40).join('、');
+    if (names.length > 40) shown += ' …共 ' + names.length + ' 个';
+
+    var lines = [];
+    lines.push('【画布现状】' + (doc.title || '未命名') + '，画布 ' + doc.w + '×' + doc.h);
+    lines.push('元件：' + (shown || '空'));
+    lines.push('导线：' + doc.wires.length + ' 根');
+
+    if (sel && sel.kind === 'comp') {
+      var sc = doc.comps.filter(function (x) { return x.id === sel.id; })[0];
+      if (sc) lines.push('当前选中：' + (sc.key || '未命名') + '(' + sc.type + ')');
+    }
+
+    var res = global.PLCAdvisor ? global.PLCAdvisor.analyze(doc) : null;
+    if (res && res.issues.length) {
+      lines.push('已有问题：' + res.issues.slice(0, 3).map(function (x) {
+        return x.msg;
+      }).join('；'));
+    }
+    return lines.join('\n');
+  }
+
+  // 工具结果只回关键字段，别把失败时的类型清单整坨塞回去
+  function brief(r) {
+    if (!r) return '{}';
+    var o = {};
+    ['ok', 'error', 'key', 'id', 'type', 'x', 'y', 'removed', 'wiresRemoved',
+      'wireId', 'level', 'from', 'to', 'points'].forEach(function (k) {
+      if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
+    });
+    if (r.issues) {
+      o.issues = r.issues.slice(0, 5).map(function (x) { return x.level + ':' + x.msg; });
+    }
+    return JSON.stringify(o);
+  }
+
+  // 多轮对话历史（不含 system），让"再往右一点""把它删掉"能接得上
+  var conv = [];
 
   function callModel(text, doc) {
     var c = cfg();
@@ -335,10 +429,11 @@
       });
     }
 
+    var sel = hooks.getSel ? hooks.getSel() : null;
     var messages = [
       { role: 'system', content: SYS },
-      { role: 'user', content: text }
-    ];
+      { role: 'system', content: snapshot(doc, sel) }
+    ].concat(conv.slice(-8)).concat([{ role: 'user', content: text }]);
     var touched = false;
 
     function step(n) {
@@ -373,7 +468,7 @@
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: JSON.stringify(r).slice(0, 1200)
+            content: brief(r)
           });
         });
         return step(n + 1).then(function (res) {
@@ -383,9 +478,23 @@
       });
     }
 
-    return step(0).catch(function (e) {
+    return step(0).then(function (res) {
+      // 记进历史，下一句"再往右一点""把它删掉"才接得上
+      if (res && res.reply) {
+        conv.push({ role: 'user', content: text });
+        conv.push({ role: 'assistant', content: res.reply });
+        if (conv.length > 16) conv = conv.slice(-16);
+      }
+      return res;
+    }).catch(function (e) {
+      var where = (typeof location !== 'undefined' && /^https?:$/.test(location.protocol) &&
+        /^(127\.0\.0\.1|localhost)$/.test(location.hostname))
+        ? '\n提示：当前是本地服务/应用预览打开的页面，那种环境常常禁外网。请直接双击 index.html（地址栏应是 file:// 开头）再试。'
+        : '';
       return {
-        reply: '调用模型失败：' + e.message + '\n检查一下 key、模型名，或者网络。',
+        reply: '调用模型失败：' + e.message +
+          '\n自查：① 点「模型」→「测试」看断在哪一层；② F12 → Network 看 net::ERR_xxx；③ 确认地址栏是 file:// 打开的文件。' +
+          where,
         changed: touched
       };
     });

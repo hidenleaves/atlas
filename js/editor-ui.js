@@ -826,6 +826,7 @@
     if (window.PLCChat) {
       window.PLCChat.mount({
         getDoc: function () { return st.doc; },
+        getSel: function () { return st.sel; },
         refresh: function () {
           commit();
           paint();
