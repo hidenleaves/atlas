@@ -127,12 +127,23 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：`npm test` 全过（route 48、api 34、prompt 34），Edge iframe PASS。
 
+## 第 11 轮 · 23:50
+
+主题：两地控制模板。
+
+- `templates.js` 抽出 `fromAtlas`，新增 `remote`：复用图集 1-14，一条模板出主电路 + 两地控制 + 自锁。
+- `draw_template` 的 `kind` enum 增加 `remote`；路由 TERMS 增加“两地控制 / 多地控制 / 远程控制”。
+- `canRunStep` / `execStep` 支持 `remote`；固定版带主电路和端子。
+- README 指令表增加“画一个两地控制”。
+
+验证：route 50/50、api 36/36、prompt 36/36，Edge headless `18 元件 / 5 端子 / level=ok / PASS`。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
 2. ~~电源端子检查（advisor warn）与“无法判断回路闭合”措辞。~~（第 3 轮完成）
 3. ~~`draw_template` 工具，让模型和内置路由共用参数化模板。~~（第 4 轮完成）
-4. 星三角 / 降压启动模板（主电路组合已由第 5 轮覆盖正反转）。
+4. 星三角 / 降压启动模板（主电路/正反转/两地控制已覆盖；星三角仍待做）。
 5. UI：~~错误定位~~（第 8 轮完成）、~~对话快捷指令/空状态~~（第 9 轮完成）、移动端。
 6. ~~测试与 CI：GitHub Actions 跑 route / api / prompt 测试。~~（第 6 轮完成）
 7. ~~README / 使用说明。~~（第 7 轮完成）

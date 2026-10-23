@@ -75,7 +75,9 @@ const CASES = [
   { text: '画一个星三角', expect: {
     op: 'draw', type: 'star',
     attrs: { main: true, interlock: true }
-  } }
+  } },
+  { text: '画一个两地控制', expect: { op: 'draw', type: 'remote' } },
+  { text: '多地控制', expect: { op: 'draw', type: 'remote' } }
 ];
 
 function check(r, exp) {

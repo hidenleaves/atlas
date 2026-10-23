@@ -93,14 +93,14 @@
   /* ---------------- 正反转 + 主电路 ----------------
      复用图集 1-12「双重互锁正反转」的标准图：主电路 + 控制电路 + 端子。
      比手摆三相主电路稳，也保证主电路和控制电路的符号/代号一致。 */
-  function reverseMain(doc) {
+  function fromAtlas(doc, id, title, reply, kind) {
     var A = api();
     var M = root.PLCEditorModel;
     var CC = root.PLCCircuits;
-    if (!A || !M || !CC) return fail('reverse', '', '主电路模板依赖未加载');
+    if (!A || !M || !CC) return fail(kind, '', '图集模板依赖未加载');
     var circ = null;
-    (CC.list || []).forEach(function (c) { if (c.id === 'rev-double') circ = c; });
-    if (!circ) return fail('reverse', '', '找不到正反转主电路模板');
+    (CC.list || []).forEach(function (c) { if (c.id === id) circ = c; });
+    if (!circ) return fail(kind, '', '找不到图集模板：' + id);
 
     var d = M.fromCircuit(circ);
     A.clear(doc);
@@ -111,12 +111,22 @@
     doc.texts = d.texts;
     doc.w = d.w;
     doc.h = d.h;
-    doc.title = '正反转 + 主电路';
-    return {
-      ok: true, kind: 'reverse', title: doc.title,
-      reply: '正反转 + 主电路画好了：熔断器、接触器主触点、热继电器、电机、相序交换，' +
-        '控制回路是双重互锁。'
-    };
+    doc.title = title;
+    return { ok: true, kind: kind, title: title, reply: reply };
+  }
+
+  function reverseMain(doc) {
+    return fromAtlas(doc, 'rev-double', '正反转 + 主电路',
+      '正反转 + 主电路画好了：熔断器、接触器主触点、热继电器、电机、相序交换，' +
+      '控制回路是双重互锁。',
+      'reverse');
+  }
+
+  function remote(doc) {
+    return fromAtlas(doc, 'remote', '两地控制',
+      '两地控制画好了：甲地 SF11/SF12、乙地 SF21/SF22，停止按钮串联、启动按钮并联，' +
+      '主电路带熔断器、热继电器和电机。',
+      'remote');
   }
 
   /* ---------------- 正反转（可关互锁 / 自锁） ---------------- */
@@ -184,10 +194,12 @@
     selflock: selflock,
     interlock: interlock,
     reverse: reverse,
+    remote: remote,
     build: function (doc, opts) {
       opts = opts || {};
       var kind = opts.kind;
-      if (kind === 'jog' || kind === 'selflock' || kind === 'interlock' || kind === 'reverse') {
+      if (kind === 'jog' || kind === 'selflock' || kind === 'interlock' ||
+          kind === 'reverse' || kind === 'remote') {
         return T[kind](doc, opts);
       }
       var msg = '没有这种模板：' + (kind || '（空）');

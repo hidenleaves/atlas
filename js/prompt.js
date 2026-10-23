@@ -28,7 +28,8 @@
 只有“在现有图上加一个元件”“删掉某个元件”这种小改动，才用 place_component / remove。
 
 【draw_template 怎么用】
-kind：jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转。
+kind：jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转 / remote 两地控制。
+remote 是图集 1-14 的固定版（主电路 + 两地控制 + 自锁），不需要再传开关。
 reverse 两个开关：interlock 是否串互锁（默认 true）、selflock 是否带自锁（默认 true）。
 用户说“正反转不带互锁” → {kind:'reverse', interlock:false}，回复必须提示相间短路风险。
 需要主电路时再加 main:true：画熔断器、接触器主触点、热继电器、电机和相序交换；

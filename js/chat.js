@@ -214,6 +214,7 @@
       if (s.type === 'interlock') return !at.main && !at.fuse && !at.thermal && !at.selflock;
       if (s.type === 'selflock') return !at.main && !at.fuse && !at.thermal && !at.interlock;
       if (s.type === 'jog') return !at.main && !at.fuse && !at.thermal && !at.interlock && !at.selflock;
+      if (s.type === 'remote') return !at.interlock;   // 两地控制模板固定含主电路/自锁
       return false;   // 星三角等暂时交给模型
     }
     if (s.op === 'add') return s.object === 'selflock';
@@ -317,7 +318,7 @@
         top.selflock = o.selflock !== false;
       }
       if (s.type === 'reverse' || s.type === 'interlock' ||
-          s.type === 'selflock' || s.type === 'jog') {
+          s.type === 'selflock' || s.type === 'jog' || s.type === 'remote') {
         var tr = A.drawTemplate(doc, top);
         return {
           reply: tr.reply || tr.error || '模板绘制失败',
@@ -454,8 +455,8 @@
             properties: {
               kind: {
                 type: 'string',
-                enum: ['jog', 'selflock', 'interlock', 'reverse'],
-                description: 'jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转'
+                enum: ['jog', 'selflock', 'interlock', 'reverse', 'remote'],
+                description: 'jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转 / remote 两地控制'
               },
               interlock: {
                 type: 'boolean',

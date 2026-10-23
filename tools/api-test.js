@@ -374,6 +374,28 @@ check('draw_template：主电路模板不允许关闭互锁', function () {
   assert(doc.comps.length === before, '原图被改动');
 });
 
+check('draw_template：两地控制', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'remote' });
+  assert(r.ok === true, JSON.stringify(r));
+  ['SF11', 'SF21', 'SF12', 'SF22'].forEach(function (k) {
+    assert(doc.comps.some(function (c) { return c.key === k; }), '缺 ' + k);
+  });
+  assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
+  assert(doc.comps.some(function (c) { return c.type === 'thermal'; }), '缺热继电器');
+  assert(doc.marks.some(function (m) { return m.kind === 'term'; }), '缺端子');
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.level === 'error'; }), JSON.stringify(an.issues));
+});
+
+check('interpretV2：画一个两地控制', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画一个两地控制', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.key === 'SF12'; }), '缺 SF12');
+  assert(doc.comps.some(function (c) { return c.type === 'motor'; }), '缺电机');
+});
+
 /* ---------------- 问题定位框 ---------------- */
 
 check('targetBox：元件 / 导线 / 接点 / 文字', function () {

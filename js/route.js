@@ -62,6 +62,9 @@
     { w: '可逆', primary: ['reverse'] },
     { w: '星三角', primary: ['star'] },
     { w: '降压启动', primary: ['star'] },
+    { w: '两地控制', primary: ['remote'] },
+    { w: '多地控制', primary: ['remote'] },
+    { w: '远程控制', primary: ['remote'] },
     { w: '互锁', secondary: ['interlock'], attrs: ['interlock'] },
     { w: '连锁', secondary: ['interlock'], attrs: ['interlock'] },
     { w: '主电路', attrs: ['main'] },
@@ -92,7 +95,8 @@
     interlock: { interlock: true,  selflock: false, main: false, fuse: false, thermal: false },
     selflock:  { interlock: false, selflock: true,  main: false, fuse: false, thermal: false },
     jog:       { interlock: false, selflock: false, main: false, fuse: false, thermal: false },
-    star:      { interlock: true,  selflock: true,  main: true,  fuse: true,  thermal: true  }
+    star:      { interlock: true,  selflock: true,  main: true,  fuse: true,  thermal: true  },
+    remote:    { interlock: false, selflock: false, main: false, fuse: false, thermal: false }
   };
 
   var REF_PREFIX = /^(QA|SF|KA|KT|FA|BB|FU|FR|QF|QS|SB|SQ|TC|TA|HL|YV|M)$/;
