@@ -504,6 +504,36 @@ check('draw_plan：terminals 落到节点并参与闭合判断', function () {
   assert(!A.analyze(doc).issues.some(function (i) { return i.code === 'power'; }), '不应再报电源端子');
 });
 
+check('draw_plan：端子在引脚外侧并有引线', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'btnNo', key: 'SF9', branch: 1 },
+      { type: 'coil', key: 'QA9', branch: 3 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF9#0', 'coil:QA9#0'] },
+      { name: 'N', pins: ['SF9#1', 'coil:QA9#1'] }
+    ],
+    terminals: [{ name: 'L1', node: 'L' }, { name: 'N', node: 'N' }]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  const marks = doc.marks.filter(function (m) { return m.kind === 'term'; });
+  assert(marks.length === 2, '端子数量');
+  marks.forEach(function (m) {
+    const hit = doc.wires.some(function (w) {
+      const a = w.pts[0], b = w.pts[w.pts.length - 1];
+      return (Math.abs(a[0] - m.x) < 0.6 && Math.abs(a[1] - m.y) < 0.6) ||
+             (Math.abs(b[0] - m.x) < 0.6 && Math.abs(b[1] - m.y) < 0.6);
+    });
+    assert(hit, '端子没有引线：' + JSON.stringify(m));
+  });
+  const p = A.pins(doc, 'SF9#0').pins[0];
+  assert(!marks.some(function (m) {
+    return Math.abs(m.x - p.x) < 0.6 && Math.abs(m.y - p.y) < 0.6;
+  }), '端子还压在引脚上');
+});
+
 check('draw_plan：terminals 指向不存在的节点时提前报错', function () {
   const doc = makeReverse(true, true);
   const before = doc.comps.length;

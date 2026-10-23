@@ -634,7 +634,8 @@
              failed: 0, total: 0, nodes: [] };
     }
 
-    // 端子放在指定节点的第一个引脚上；它和该引脚同网，供 advisor 判断回路闭合
+    // 端子放在指定节点第一个引脚的外侧：先引一段短线，再把 term 放在线头，
+    // 这样不会压在符号上，电气上仍和该节点同网。
     var termsPlaced = 0;
     terminals.forEach(function (t) {
       var node = null;
@@ -647,9 +648,59 @@
       if (doc.marks.some(function (m) {
         return m.kind === 'term' && samePoint([m.x, m.y], p.pt);
       })) return;
+
+      var nodeSet = {};
+      (node.pins || []).forEach(function (ref) {
+        var q = parsePin(doc, ref);
+        if (!q.error) nodeSet[q.comp.id + '#' + q.i] = true;
+      });
+
+      function segClear(x2, y2) {
+        var x1 = p.pt[0], y1 = p.pt[1];
+        for (var k = 2; k <= 6; k++) {
+          var tt = k / 6;
+          var px = x1 + (x2 - x1) * tt;
+          var py = y1 + (y2 - y1) * tt;
+          var inside = doc.comps.some(function (c) {
+            var b = boxOf(c);
+            return px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h;
+          });
+          if (inside) return false;
+        }
+        var bad = false;
+        M.pinsOf(doc).forEach(function (q) {
+          if (q.id === p.comp.id && q.i === p.i) return;
+          if (nodeSet[q.id + '#' + q.i]) return;
+          if (M.onSeg([x1, y1], [x2, y2], q.x, q.y)) bad = true;
+          if (Math.hypot(q.x - x2, q.y - y2) < 6) bad = true;
+        });
+        if (bad) return false;
+        return !doc.marks.some(function (m) {
+          return m.kind === 'term' && Math.hypot(m.x - x2, m.y - y2) < 8;
+        });
+      }
+
+      var dirs = [[-28, 0], [28, 0], [0, -28], [0, 28]];
+      var spot = null;
+      for (var di = 0; di < dirs.length; di++) {
+        var qx = p.pt[0] + dirs[di][0], qy = p.pt[1] + dirs[di][1];
+        if (segClear(qx, qy)) { spot = [qx, qy]; break; }
+      }
+      if (spot) {
+        var w = {
+          id: M.uid('w'),
+          pts: [[p.pt[0], p.pt[1]], [spot[0], spot[1]]],
+          a: { c: p.comp.id, i: p.i }
+        };
+        M.resolveWire(doc, w);
+        doc.wires.push(w);
+      } else {
+        spot = [p.pt[0], p.pt[1]];
+      }
+
       doc.marks.push({
         id: M.uid('m'), kind: 'term',
-        x: p.pt[0], y: p.pt[1], name: String(t.name || '')
+        x: spot[0], y: spot[1], name: String(t.name || '')
       });
       termsPlaced++;
     });
