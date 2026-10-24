@@ -265,6 +265,17 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：api 43/43、template 8/8、`npm test` 全过；Edge `ok=true / side=1 / PASS`。
 
+## 第 22 轮 · 11:45
+
+主题：CHANGELOG / 进度汇总。
+
+- 新增 `CHANGELOG.md`：按 Added / Changed / Fixed / Tests / Backlog 汇总本轮优化。
+- README 增加 CHANGELOG 链接。
+- 当前回归合计 245 条：route 55、fuzz 102、api 43、template 8、prompt 37。
+- 记录剩余大项：星三角、主电路参数化、重复 `type:key`、复合指令边界。
+
+验证：`npm test` 全过；文档与代码状态一致。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -291,6 +302,7 @@ CI：`ce6df0c` 复查为 `completed / success`。
 22. ~~draw_template few-shot 示例。~~（第 19 轮完成）
 23. ~~收尾打磨：8 个快捷指令 + README/会话总结。~~（第 20 轮完成）
 24. ~~wireNodes 侧向引出（绕开同列引脚）。~~（第 21 轮完成）
+25. ~~CHANGELOG / 进度汇总。~~（第 22 轮完成）
 
 ## 参考
 
