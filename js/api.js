@@ -439,12 +439,69 @@
         });
         var busY = pickBusY(doc, minY, maxY, minX, maxX);
 
+        // 本节点引脚集合：同一根线上的引脚不算“挡路”
+        var nodeSet = {};
+        list.forEach(function (p) { nodeSet[p.comp.id + '#' + p.i] = true; });
+
+        function hitsPin(px, y1, y2, self) {
+          var lo = Math.min(y1, y2), hi = Math.max(y1, y2);
+          return M.pinsOf(doc).some(function (q) {
+            if (Math.abs(q.x - px) > 0.5) return false;
+            if (q.id === self.comp.id && q.i === self.i) return false;
+            if (nodeSet[q.id + '#' + q.i]) return false;
+            return q.y > lo + 0.5 && q.y < hi - 0.5;
+          });
+        }
+
+        function segClear(x1, y1, x2, y2, self) {
+          for (var k = 1; k < 6; k++) {
+            var tt = k / 6;
+            var sx = x1 + (x2 - x1) * tt;
+            var sy = y1 + (y2 - y1) * tt;
+            if (doc.comps.some(function (c) {
+              if (c.id === self.comp.id) return false;
+              var b = boxOf(c);
+              return sx > b.x && sx < b.x + b.w && sy > b.y && sy < b.y + b.h;
+            })) return false;
+          }
+          var bad = false;
+          M.pinsOf(doc).forEach(function (q) {
+            if (q.id === self.comp.id && q.i === self.i) return;
+            if (nodeSet[q.id + '#' + q.i]) return;
+            if (M.onSeg([x1, y1], [x2, y2], q.x, q.y)) bad = true;
+            if (Math.abs(q.x - x2) < 0.6 && Math.abs(q.y - y2) < 0.6) bad = true;
+          });
+          return !bad;
+        }
+
+        function pathClear(pts, self) {
+          for (var i = 0; i + 1 < pts.length; i++) {
+            if (!segClear(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], self)) return false;
+          }
+          return true;
+        }
+
         reps.forEach(function (p) {
           var px = Math.round(p.pt[0]);
-          if (Math.round(p.pt[1]) === busY) return;
+          var py = p.pt[1];
+          if (Math.round(py) === busY) return;
+
+          var pts = [[px, py], [px, busY]];
+          // 竖直引出会穿过同列其他引脚时，先向外走 16px，再侧移绕开
+          if (hitsPin(px, py, busY, p)) {
+            var out = (p.i % 2 === 0) ? -16 : 16;   // 上脚向上、下脚向下
+            var offs = [18, -18, 30, -30, 44, -44];
+            for (var oi = 0; oi < offs.length; oi++) {
+              var lx = px + offs[oi];
+              if (lx < minX - 0.5 || lx > maxX + 0.5) continue;
+              var cand = [[px, py], [px, py + out], [lx, py + out], [lx, busY]];
+              if (pathClear(cand, p)) { pts = cand; break; }
+            }
+          }
+
           var w = {
             id: M.uid('w'),
-            pts: [[px, p.pt[1]], [px, busY]],
+            pts: pts,
             a: { c: p.comp.id, i: p.i }
           };
           M.resolveWire(doc, w);

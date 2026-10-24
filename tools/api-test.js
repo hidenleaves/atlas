@@ -331,6 +331,27 @@ check('draw_plan：align 目标写在后面也能先放', function () {
     '自锁触点没有和按钮同行：' + M.anchorOf(sf1).y + ' vs ' + M.anchorOf(qa1).y);
 });
 
+check('draw_plan：母线引出线绕开同列引脚', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'no', key: 'QA1', branch: 2, align: 'SF1' },
+      { type: 'btnNo', key: 'SF1', branch: 1 },
+      { type: 'coil', key: 'QA1', branch: 1 },
+      { type: 'btnNo', key: 'SF2', branch: 3 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF1#0', 'no:QA1#0'] },
+      { name: 'M', pins: ['SF1#1', 'no:QA1#1', 'coil:QA1#0'] },
+      { name: 'N', pins: ['coil:QA1#1', 'SF2#0'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.level === 'error'; }), JSON.stringify(an.issues));
+  assert(doc.wires.some(function (w) { return w.pts.length >= 4; }), '没有侧向引出线');
+});
+
 check('draw_plan：没给 nodes 时文案不含 undefined', function () {
   const doc = M.blank(760, 500);
   const r = A.drawPlan(doc, {
