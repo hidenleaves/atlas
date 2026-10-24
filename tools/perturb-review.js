@@ -41,6 +41,12 @@ const BLOCKING = [
   ['画个正反转，别不要互锁',           { nc: 2 },                  '双重否定 = 要'],
   ['画个正反转不能没有互锁',           { nc: 2, no: 2 },            '双重否定 = 要'],
 
+  /* ---- 排他 / 排除语义（第 25 轮） ---- */
+  ['画个正反转，只要自锁',            { nc: 0, no: 2 },           '排他「只要」'],
+  ['画个正反转，只要互锁',            { nc: 2, no: 0 },           '排他「只要」（镜像）'],
+  ['画个正反转，除了互锁都要',         { nc: 0, no: 2 },           '排除式「除了」'],
+  ['画个正反转，除了自锁都要',         { nc: 2, no: 0 },           '排除式（镜像）'],
+
   /* ---- 基线：改动不能误伤普通句 ---- */
   ['画个正反转',                     { nc: 2, no: 2, comps: 8 }, '正反转基线'],
   ['画个起保停',                     { nc: 0, no: 1, comps: 4 }, '起保停基线'],
@@ -57,16 +63,15 @@ const BLOCKING = [
   ['__BAD_PIN__',                    { fn: 'badPin' },           '不存在引脚必须拒绝'],
   ['__TWO_PLANS__',                  { fn: 'twoPlans' },         '连续两次 draw_plan 无污染'],
   ['__TEMPLATES__',                  { fn: 'templates' },        '模板全部 level=ok'],
+  ['__TPL_LEGAL__',                  { fn: 'tplLegal' },         'drawTemplate 合法调用必须放行'],
+  ['__TPL_ILLEGAL__',                { fn: 'tplIllegal' },       'drawTemplate 非法参数必须拒绝'],
+  ['__INTERLOCK_SELF__',             { fn: 'interlockSelf' },    '互锁+自锁'],
 ];
 
 const KNOWN = [
-  ['画个正反转，只要自锁',            { nc: 0, no: 2 },           '排他语义「只要」未覆盖'],
-  ['画个正反转，除了互锁都要',         { nc: 0, no: 2 },           '排除式「除了…都要」未覆盖'],
-  ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件'],
-  ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型'],
-  ['画个互锁，要自锁',                { nc: 2 },                  '复合加属性回退模型'],
-  ['__TPL_THERMAL__',                { fn: 'tplThermal' },       'drawTemplate 静默忽略 thermal'],
-  ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name'],
+  ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件（已裁定放弃）'],
+  ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型（安全）'],
+  ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name（范围外）'],
 ];
 
 const PROBES = {
@@ -128,12 +133,41 @@ const PROBES = {
     if (!r.ok || r.level !== 'ok') bad.push('reverseMain=' + (r.level || 'fail'));
     return { ok: !bad.length, detail: bad.length ? bad.join(',') : '6/6 level=ok' };
   },
-  tplThermal() {
+  tplLegal() {
+    // 合法调用必须全部放行：显式 true 不能被当成"关闭"
+    const cases = [
+      [{ kind: 'reverse', main: true }, 'main 无参数'],
+      [{ kind: 'reverse', main: true, thermal: true }, 'thermal:true'],
+      [{ kind: 'reverse', main: true, fuse: true }, 'fuse:true'],
+      [{ kind: 'reverse', main: true, selflock: true }, 'selflock:true'],
+      [{ kind: 'reverse', main: true, interlock: true }, 'interlock:true'],
+      [{ kind: 'reverse', main: false, selflock: false }, '非主电路关自锁']
+    ];
+    const bad = [];
+    cases.forEach(([o, label]) => {
+      const d = M.blank();
+      const r = A.drawTemplate(d, o);
+      if (!r.ok || !d.comps.length) bad.push(label);
+    });
+    return { ok: !bad.length, detail: bad.length ? '被误拒：' + bad.join(',') : `${cases.length}/${cases.length} 放行` };
+  },
+  tplIllegal() {
+    // 主电路固定版，明确关掉其中元件必须被拒绝且不留残图
+    const bad = [];
+    [['thermal', '热继电器'], ['fuse', '熔断器'], ['selflock', '自锁'], ['interlock', '互锁']].forEach(([k]) => {
+      const d = M.blank();
+      const o = { kind: 'reverse', main: true }; o[k] = false;
+      const r = A.drawTemplate(d, o);
+      if (r.ok !== false || d.comps.length !== 0) bad.push(k);
+    });
+    return { ok: !bad.length, detail: bad.length ? '未拒绝：' + bad.join(',') : '4/4 拒绝且无残图' };
+  },
+  interlockSelf() {
     const d = M.blank();
-    const r = A.drawTemplate(d, { kind: 'reverse', main: true, thermal: false });
-    const t = d.comps.filter(c => c.type === 'thermal').length;
-    // 修好 = 明确拒绝（ok:false）；仍静默出图 = 未修
-    return { ok: r.ok === false, detail: `ok=${r.ok} thermal=${t}` };
+    const r = A.drawTemplate(d, { kind: 'interlock', selflock: true });
+    const no = d.comps.filter(c => c.type === 'no').length;
+    return { ok: r.ok && r.level === 'ok' && no === 2,
+      detail: `level=${r.level} comps=${d.comps.length} no=${no}` };
   },
   atlasTermName() {
     const d = M.blank();
