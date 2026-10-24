@@ -119,7 +119,7 @@ python tools/qet-import.py   # 重新生成符号库（需要网络）
 
 CI 在 `.github/workflows/test.yml`：push 到 main / PR / 手动触发，Node 22，跑单元测试并检查提示词文档一致性。
 
-当前回归规模：route 79、route-fuzz 124、api 56、template 8、prompt 37。
+当前回归规模：route 85、route-fuzz 128、api 62、template 9、prompt 37。
 优化迭代记录见 `docs/optimization-log.md`，变更汇总见 `CHANGELOG.md`。
 
 ## 符号来源与许可
@@ -136,6 +136,7 @@ CI 在 `.github/workflows/test.yml`：push 到 main / PR / 手动触发，Node 2
 - 纯前端、无后端；图纸存在浏览器 `localStorage`，清缓存会丢失，重要图纸请导出 JSON。
 - AI 需要浏览器能访问你配置的 API；本地预览/沙箱常常禁外网。
 - 极端跨列布局下，母线引出线可能穿过同列其他引脚；`draw_plan` 会回滚并报短路，不会静默画错。
+- 量词干扰（如“用2个接触器”）可能多生成一个元件，属已知限制；这类句子可改用明确的元件/支路描述。
 - 主电路模板目前是固定版（熔断器、热继电器、电机、相序交换）；星三角尚未内置。
 - 端子默认落在节点首个引脚上，复杂图上位置可能不够美观。
 - 不做电气仿真、短路电流校验或安全认证。

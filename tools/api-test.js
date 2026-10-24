@@ -334,6 +334,65 @@ check('interpretV2：别删互锁不输出好的不动', function () {
   assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
 });
 
+check('interpretV2：只要自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，只要自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 6, '元件数 ' + doc.comps.length);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁应关闭');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁应保留');
+});
+
+check('interpretV2：除了互锁都要', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，除了互锁都要', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 6, '元件数 ' + doc.comps.length);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁应关闭');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁应保留');
+});
+
+check('interpretV2：除了自锁都要', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，除了自锁都要', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 6, '元件数 ' + doc.comps.length);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁应保留');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '自锁应关闭');
+});
+
+check('interpretV2：画个互锁，要自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个互锁，要自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 8, '元件数 ' + doc.comps.length);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁数量');
+  assert(/自锁/.test(r.reply), r.reply);
+});
+
+check('drawTemplate：interlock + selflock', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'interlock', selflock: true });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.level === 'ok', 'level=' + r.level);
+  assert(doc.comps.length === 8, '元件数 ' + doc.comps.length);
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁数量');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁数量');
+});
+
+check('drawTemplate：主电路明确关闭元件时拒绝', function () {
+  ['thermal', 'fuse', 'selflock', 'interlock'].forEach(function (k) {
+    const doc = M.blank(760, 500);
+    const opts = { kind: 'reverse', main: true };
+    opts[k] = false;
+    const r = A.drawTemplate(doc, opts);
+    assert(r.ok === false, k + ' 应拒绝，实际 ' + JSON.stringify(r));
+    assert(new RegExp(k + ':false').test(r.error || ''), k + ' 报错缺参数名：' + r.error);
+    assert(doc.comps.length === 0, k + ' 拒绝时不应出图');
+  });
+});
+
 check('draw_plan：单引脚节点 + 端子', function () {
   const doc = M.blank(760, 500);
   const r = A.drawPlan(doc, {

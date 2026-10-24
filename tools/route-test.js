@@ -66,6 +66,24 @@ const CASES = [
   { text: '画个正反转，不加互锁和自锁', expect: {
     op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
   } },
+  { text: '画个正反转，只要自锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: true }
+  } },
+  { text: '正反转只要自锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: true }
+  } },
+  { text: '画个正反转，除了互锁都要', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: true }
+  } },
+  { text: '画个正反转，除了自锁都要', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: true, selflock: false }
+  } },
+  { text: '画个正反转，只要互锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: true, selflock: false }
+  } },
+  { text: '画个互锁，要自锁', expect: {
+    op: 'draw', type: 'interlock', attrs: { selflock: true }
+  } },
   { text: '画个正反转，省掉自锁', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
   { text: '画个正反转，省掉互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
   { text: '画个正反转，省掉自锁和互锁', expect: {

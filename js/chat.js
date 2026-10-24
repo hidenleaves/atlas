@@ -220,7 +220,7 @@
         if (ex.interlock && at.interlock === false) return false;
         return true;
       }
-      if (s.type === 'interlock') return !at.main && !at.fuse && !at.thermal && !at.selflock;
+      if (s.type === 'interlock') return !at.main && !at.fuse && !at.thermal;
       if (s.type === 'selflock') return !at.main && !at.fuse && !at.thermal && !at.interlock;
       if (s.type === 'jog') return !at.main && !at.fuse && !at.thermal && !at.interlock && !at.selflock;
       if (s.type === 'remote') return !at.interlock;   // 两地控制模板固定含主电路/自锁
@@ -326,6 +326,9 @@
         top.main = !!o.main;
         top.interlock = o.interlock !== false;
         top.selflock = o.selflock !== false;
+      }
+      if (s.type === 'interlock') {
+        top.selflock = o.selflock === true;
       }
       if (s.type === 'reverse' || s.type === 'interlock' ||
           s.type === 'selflock' || s.type === 'jog' || s.type === 'remote') {
@@ -479,7 +482,7 @@
               },
               selflock: {
                 type: 'boolean',
-                description: 'reverse 专用：是否带自锁触点，默认 true'
+                description: 'reverse / interlock：是否带自锁触点；reverse 默认 true，interlock 默认 false'
               },
               main: {
                 type: 'boolean',

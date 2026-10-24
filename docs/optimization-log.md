@@ -3,19 +3,19 @@
 - 起始：2026-10-23 19:35 +0800
 - 目标结束：2026-10-24 01:35 +0800
 - 规则：每轮一个主题；跑完测试再 commit + push；轮次之间用 ScheduleWakeup 继续。
-- 最后更新：2026-10-25 · 第 24 轮
+- 最后更新：2026-10-25 · 第 25 轮
 
-## Session 总结（19:35 起，24 轮，含 10-24 续跑）
+## Session 总结（19:35 起，25 轮，含 10-24 / 10-25 续跑）
 
-- 24 轮迭代，每轮先跑测试再 commit + push；抽查的 GitHub Actions 全部成功。
+- 25 轮迭代，每轮先跑测试再 commit + push；抽查的 GitHub Actions 全部成功。
 - 提示词/人设卡：单一事实源 `js/prompt.js`，8 个工具 schema 收紧，`draw_template` few-shot 示例，`提示词.md` 自动生成。
-- 路由 v2：否定作用域、角色判定、复合指令、前置/后置属性、动词否定传递、secondary 降级、并列否定；route 79 条 + fuzz 124 条组合回归。
+- 路由 v2：否定作用域、角色判定、复合指令、前置/后置属性、动词否定传递、secondary 降级、并列否定、`只要/除了` 排除语义；route 85 条 + fuzz 128 条组合回归。
 - 画板可靠性：`draw_plan` 原子回滚、`align` 预排序、母线避让、端子外侧引线、电源回路闭合检查、`wireNodes` 侧向引出、单引脚端点。
-- 模板：点动 / 起保停 / 互锁 / 正反转 / 正反转+主电路 / 两地控制；路由、对话、模板库共用 `drawTemplate`。
+- 模板：点动 / 起保停 / 互锁 / 正反转 / 正反转+主电路 / 两地控制；互锁支持自锁触点；路由、对话、模板库共用 `drawTemplate`。
 - UX：对话快捷指令、问题定位高亮、窄屏面板、focus-visible、reduced-motion。
 - 工程：`npm test` + GitHub Actions；README、提示词文档、优化日志、CHANGELOG 同步。
-- 回归：route 79 / fuzz 124 / api 56 / template 8 / prompt 37，合计 304 条。
-- 剩余大项：星三角（需要 6 端子电机）、主电路模板参数化、重复 `type:key`、`drawTemplate` API 层拒绝不支持的开关。
+- 回归：route 85 / fuzz 128 / api 62 / template 9 / prompt 37，合计 321 条。
+- 剩余大项：星三角（需要 6 端子电机）、主电路模板参数化、重复 `type:key`、图集端子 `name`；数量短语按 review 裁定放弃。
 
 ## 第 1 轮 · 19:35
 
@@ -307,6 +307,25 @@ CI：`ce6df0c` 复查为 `completed / success`。
 - 独立审查套件 13/18：未过 4 条中，1 条是套件期望 model 与本轮 review 表格 `nc=0` 冲突；
   其余为 review 明确列出的非阻塞项（数量短语、`drawTemplate` thermal、图集端子 name）。
 
+## 第 25 轮 · 2026-10-25（续跑）
+
+主题：按 WorkBuddy 第 24 轮 review 收敛（只做指定项）。
+
+- `只要 / 除了` 语义：
+  - “画个正反转，只要自锁” → 互锁 off、自锁 on；
+  - “画个正反转，除了互锁都要” → 互锁 off、自锁 on；
+  - “画个正反转，除了自锁都要” → 互锁 on、自锁 off；
+  - “画个正反转，只要互锁” → 互锁 on、自锁 off。
+  - 同一子句内改写属性；跨子句时生成 `attrs` 步骤，只动互锁/自锁/主电路/熔断器/热继电器。
+- 互锁模板支持自锁：`interlock` 新增 `selflock` 开关，多放两只同名常开触点并串入启动支路；
+  `chat.js` 的 `canRunStep` 不再拦截 `selflock`；对话、路由、模板库一致出图。
+- `drawTemplate` 非法参数显式拒绝：`main:true` 同时 `thermal:false / fuse:false / selflock:false / interlock:false`
+  时返回 `ok:false`，错误信息点名具体参数并提示改用 `draw_plan`，不再静默按固定版出图。
+- `wireNodes` 母线范围：改用实际引出线端点 `leadXs` 计算，互锁 + 自锁侧移后母线不再压回竖直引线。
+- 回归：route 85、fuzz 128、api 62、template 9、prompt 37，合计 321；独立审查 BLOCKING 27/27。
+- 按 review 放弃：数量短语（“用2个接触器”多生成元件）不修，写入 README 已知限制；
+  未动 UI / 星三角 / 模板参数化 / 图集端子 `name` / `tools/perturb-review.js`。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -335,10 +354,11 @@ CI：`ce6df0c` 复查为 `completed / success`。
 24. ~~wireNodes 侧向引出（绕开同列引脚）。~~（第 21 轮完成）
 25. ~~CHANGELOG / 进度汇总。~~（第 22 轮完成）
 26. ~~AI 指令否定传递、单引脚节点、未解析子句。~~（第 23 轮完成）
-27. `drawTemplate` API 层拒绝 `main:true` + 明确关闭元件的组合；图集端子补 `name`。
+27. ~~`drawTemplate` API 层拒绝 `main:true` + 明确关闭元件的组合。~~（第 25 轮完成）；图集端子补 `name` 仍待办。
 28. ~~secondary 降级 + remove→draw 时序。~~（第 24 轮完成）
-29. 数量短语（“用2个接触器”）不应生成 `place`（非阻塞）。
-30. “请把互锁去掉，画个正反转” perturb 套件期望 model，与 review 表格 `nc=0` 冲突，待 WorkBuddy 明确。
+29. ~~数量短语（“用2个接触器”）不应生成 `place`。~~（第 25 轮按 review 裁定放弃，非阻塞，已写入 README 已知限制）
+30. ~~“请把互锁去掉，画个正反转” perturb 套件期望 model，与 review 表格 `nc=0` 冲突。~~（WorkBuddy 已修正套件期望，两边一致）
+31. ~~“只要 / 除了”排除语义、互锁模板自锁、`drawTemplate` 非法参数显式报错。~~（第 25 轮完成）
 
 ## 参考
 

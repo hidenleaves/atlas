@@ -56,10 +56,12 @@
     };
   }
 
-  /* ---------------- 纯互锁 ---------------- */
-  function interlock(doc) {
+  /* ---------------- 纯互锁（可选自锁） ---------------- */
+  function interlock(doc, opts) {
     var A = api();
     if (!A) return fail('interlock', '', '画板 API 未加载');
+    opts = opts || {};
+    var self = opts.selflock === true;
     A.clear(doc);
     A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
     A.place(doc, 'nc', { key: 'QA2', branch: 1 });
@@ -67,16 +69,29 @@
     A.place(doc, 'btnNo', { key: 'SF2', branch: 2, align: 'SF1' });
     A.place(doc, 'nc', { key: 'QA1', branch: 2 });
     A.place(doc, 'coil', { key: 'QA2', branch: 2 });
+    if (self) {
+      A.place(doc, 'no', { key: 'QA1', branch: 3, align: 'SF1' });
+      A.place(doc, 'no', { key: 'QA2', branch: 4, align: 'SF2' });
+    }
+
+    var L = ['SF1#0', 'SF2#0'];
+    var A1 = ['SF1#1', 'nc:QA2#0'];
+    var B1 = ['SF2#1', 'nc:QA1#0'];
+    if (self) {
+      L.push('no:QA1#0', 'no:QA2#0');
+      A1.splice(1, 0, 'no:QA1#1');
+      B1.splice(1, 0, 'no:QA2#1');
+    }
 
     var r = A.wireNodes(doc, [
-      { name: 'L', pins: ['SF1#0', 'SF2#0'] },
-      { name: 'A1', pins: ['SF1#1', 'nc:QA2#0'] },
+      { name: 'L', pins: L },
+      { name: 'A1', pins: A1 },
       { name: 'A2', pins: ['nc:QA2#1', 'coil:QA1#0'] },
-      { name: 'B1', pins: ['SF2#1', 'nc:QA1#0'] },
+      { name: 'B1', pins: B1 },
       { name: 'B2', pins: ['nc:QA1#1', 'coil:QA2#0'] },
       { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] }
     ]);
-    doc.title = '互锁控制';
+    doc.title = '互锁控制' + (self ? '（带自锁）' : '');
     if (!r.ok) {
       var bad = r.nodes.filter(function (n) { return !n.ok; })
         .map(function (n) { return n.node + '（' + n.error + '）'; }).join('；');
@@ -84,9 +99,12 @@
     }
     return {
       ok: true, kind: 'interlock', title: doc.title,
-      reply: '互锁画好了：SF1 和 SF2 各自串一个对方的常闭触点（nc:QA2 / nc:QA1），' +
-        '两个线圈不会同时吸合。这是纯互锁，不含主电路和自锁 —— ' +
-        '要正反转（换相序驱动电机）跟我说“画正反转”。'
+      reply: self
+        ? '互锁 + 自锁画好了：SF1 和 SF2 各自串一个对方的常闭触点（nc:QA2 / nc:QA1），' +
+          '自锁触点并联在按钮两端；两个线圈不会同时吸合，松手也能保持。'
+        : '互锁画好了：SF1 和 SF2 各自串一个对方的常闭触点（nc:QA2 / nc:QA1），' +
+          '两个线圈不会同时吸合。这是纯互锁，不含主电路和自锁 —— ' +
+          '要正反转（换相序驱动电机）跟我说“画正反转”。'
     };
   }
 

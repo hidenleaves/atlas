@@ -24,6 +24,7 @@ const CASES = [
   { name: '点动', kind: 'jog', min: 2 },
   { name: '起保停', kind: 'selflock', min: 3 },
   { name: '纯互锁', kind: 'interlock', min: 5 },
+  { name: '纯互锁 + 自锁', kind: 'interlock', opts: { selflock: true }, min: 7 },
   { name: '正反转', kind: 'reverse', min: 6 },
   { name: '正反转不带互锁', kind: 'reverse', opts: { interlock: false }, min: 4 },
   { name: '正反转不带自锁', kind: 'reverse', opts: { selflock: false }, min: 4 },

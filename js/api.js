@@ -487,10 +487,11 @@
           return true;
         }
 
+        var leadXs = [];
         reps.forEach(function (p) {
           var px = Math.round(p.pt[0]);
           var py = p.pt[1];
-          if (Math.round(py) === busY) return;
+          if (Math.round(py) === busY) { leadXs.push(px); return; }
 
           var pts = [[px, py], [px, busY]];
           // 竖直引出会穿过同列其他引脚时，先向外走 16px，再侧移绕开
@@ -504,6 +505,7 @@
               if (pathClear(cand, p)) { pts = cand; break; }
             }
           }
+          leadXs.push(pts[pts.length - 1][0]);
 
           var w = {
             id: M.uid('w'),
@@ -515,9 +517,13 @@
           made++;
         });
 
+        // 母线按“实际引线落点”画，不能按原始引脚 x：
+        // 侧向引出后如果仍从原 x 画，母线端点会落到邻列的竖直引线上，造成短路。
+        var bx0 = leadXs.length ? Math.min.apply(null, leadXs) : minX;
+        var bx1 = leadXs.length ? Math.max.apply(null, leadXs) : maxX;
         doc.wires.push({
           id: M.uid('w'),
-          pts: [[Math.round(minX), busY], [Math.round(maxX), busY]]
+          pts: [[Math.round(bx0), busY], [Math.round(bx1), busY]]
         });
       }
 
@@ -808,6 +814,18 @@
      模板会替换当前图；失败回滚，和 draw_plan 的原子性一致。 */
   api.drawTemplate = function (doc, opts) {
     opts = opts || {};
+    // 主电路模板是固定版：明确关闭其中任一元件时必须报错，不能静默忽略
+    if (opts.main && (opts.thermal === false || opts.fuse === false ||
+                      opts.selflock === false || opts.interlock === false)) {
+      var bad = [];
+      if (opts.thermal === false) bad.push('thermal:false');
+      if (opts.fuse === false) bad.push('fuse:false');
+      if (opts.selflock === false) bad.push('selflock:false');
+      if (opts.interlock === false) bad.push('interlock:false');
+      var msg = '主电路模板固定包含熔断器、热继电器、双重互锁和自锁，' +
+        '不支持 ' + bad.join('、') + '；请改用 draw_plan。';
+      return { ok: false, kind: opts.kind || null, error: msg, reply: msg };
+    }
     var T = global.PLCTemplates;
     if (!T) return { ok: false, error: '模板模块未加载', reply: '模板模块未加载' };
     var snap = M.clone(doc);

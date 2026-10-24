@@ -317,6 +317,47 @@
       });
     });
 
+    // 排他 / 排除语义（第 25 轮 KNOWN 1/2）
+    // 只要X：只保留 X，其它可控属性关闭；除了X都要：只关闭 X。
+    var onlyAt = clause.indexOf('只要');
+    var exceptAt = clause.indexOf('除了');
+    var hasPrimary = primaryPos.length > 0;
+    var CONTROLS = ['interlock', 'selflock', 'main', 'fuse', 'thermal'];
+
+    function attrsAfter(at) {
+      var out = {};
+      tokens.forEach(function (t) {
+        if (t.kind !== 'term' || t.at <= at || t.neg) return;
+        (t.def.secondary || []).forEach(function (k) { out[k] = true; });
+        (t.def.attrs || []).forEach(function (k) { out[k] = true; });
+      });
+      return out;
+    }
+
+    // 跟在上一张图后面：直接返回 attrs 步骤，由 route 合并
+    if (opts.hasDraw && !hasPrimary) {
+      if (onlyAt >= 0) {
+        var allowedOnly = attrsAfter(onlyAt);
+        if (Object.keys(allowedOnly).length) {
+          var onlyPatch = {}, onlyEx = {};
+          CONTROLS.forEach(function (k) {
+            onlyPatch[k] = !!allowedOnly[k];
+            onlyEx[k] = true;
+          });
+          return { op: 'attrs', attrs: onlyPatch, explicit: onlyEx, confidence: 0.85 };
+        }
+      }
+      if (exceptAt >= 0) {
+        var excludedOnly = attrsAfter(exceptAt);
+        var exKeys = Object.keys(excludedOnly);
+        if (exKeys.length) {
+          var exceptPatch = {}, exceptEx = {};
+          exKeys.forEach(function (k) { exceptPatch[k] = false; exceptEx[k] = true; });
+          return { op: 'attrs', attrs: exceptPatch, explicit: exceptEx, confidence: 0.85 };
+        }
+      }
+    }
+
     var subject = null;
     var subjectFromPrimary = false;
     var P = uniq(primaryPos);
@@ -336,6 +377,26 @@
     Object.keys(attrNeg).forEach(function (k) { attrs[k] = false; });
     if (subject === 'interlock' && !attrNeg.interlock) attrs.interlock = true;
     if (subject === 'selflock' && !attrNeg.selflock) attrs.selflock = true;
+
+    // 同一子句内的排他/排除：直接改这张图的 attrs
+    if (hasPrimary) {
+      if (onlyAt >= 0) {
+        var allowedDraw = attrsAfter(onlyAt);
+        if (Object.keys(allowedDraw).length) {
+          CONTROLS.forEach(function (k) {
+            attrs[k] = !!allowedDraw[k];
+            (allowedDraw[k] ? attrPos : attrNeg)[k] = true;
+          });
+        }
+      }
+      if (exceptAt >= 0) {
+        var excludedDraw = attrsAfter(exceptAt);
+        Object.keys(excludedDraw).forEach(function (k) {
+          attrs[k] = false;
+          attrNeg[k] = true;
+        });
+      }
+    }
 
     var comp = scan(clause, COMPONENT_WORDS)[0];
     var refs = findRefs(clause);
