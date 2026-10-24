@@ -235,6 +235,68 @@ check('interpretV2：主电路不带热继电器（前置）交给模型', funct
   assert(doc.comps.length === 0, '不应先改画布');
 });
 
+check('interpretV2：动词否定——别加互锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，别加互锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应画');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁应保留');
+  assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
+});
+
+check('interpretV2：动词否定——不加自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，不加自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁应保留');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '自锁不应画');
+  assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
+});
+
+check('interpretV2：去掉自锁交给模型', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，去掉自锁', doc);
+  assert(r === null, '应交给模型');
+  assert(doc.comps.length === 0, '不应先改画布');
+});
+
+check('interpretV2：别画熔断器（主电路固定）交给模型', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转带主电路，别画熔断器', doc);
+  assert(r === null, '应交给模型');
+  assert(doc.comps.length === 0, '不应先改画布');
+});
+
+check('interpretV2：别删互锁不输出好的不动', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，别删互锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 8, '应画标准正反转');
+  assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
+});
+
+check('draw_plan：单引脚节点 + 端子', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'btnNo', key: 'SF1', branch: 1 },
+      { type: 'coil', key: 'QA1', branch: 1 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF1#0'] },
+      { name: 'A', pins: ['SF1#1', 'coil:QA1#0'] },
+      { name: 'N', pins: ['coil:QA1#1'] }
+    ],
+    terminals: [{ name: 'L1', node: 'L' }, { name: 'N', node: 'N' }]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.wiring === '全部连通', r.wiring);
+  assert(doc.comps.length === 2, '元件数');
+  assert(doc.marks.filter(function (m) { return m.kind === 'term'; }).length === 2, '端子数');
+  assert(!A.analyze(doc).issues.some(function (i) { return i.level === 'error'; }),
+    JSON.stringify(A.analyze(doc).issues));
+});
+
 /* ---------------- draw_plan 原子性 / 排序 ---------------- */
 
 check('draw_plan：无效类型在清空前被拦下，原图不动', function () {

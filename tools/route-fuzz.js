@@ -67,7 +67,12 @@ VERBS.forEach(function (v) {
 });
 
 TYPES.forEach(function (t) {
-  CASES.push({ text: '不要' + t[0], expect: { ok: false } });
+  // 自锁/互锁本身也是属性：单独否定时是明确的不动作，不是“听不懂”
+  if (t[0] === '自锁' || t[0] === '互锁') {
+    CASES.push({ text: '不要' + t[0], expect: { op: 'none' } });
+  } else {
+    CASES.push({ text: '不要' + t[0], expect: { ok: false } });
+  }
 });
 
 ATTRS.forEach(function (a) {
@@ -85,6 +90,12 @@ ATTRS.forEach(function (a) {
   { text: '主电路要，画个正反转', expect: { op: 'draw', type: 'reverse', attrs: { main: true } } },
   { text: '不要自锁，画个正反转', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
   { text: '主电路不带热继电器，画个正反转带主电路', expect: { op: 'draw', type: 'reverse', attrs: { main: true, thermal: false } } },
+  { text: '画个正反转别加互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，别加互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，不加自锁', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
+  { text: '画个正反转，去掉自锁', expect: { ok: false } },
+  { text: '画个正反转（不要互锁）', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，不加互锁和自锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false } } },
   { text: '把 QA1 接到 SF1', expect: { op: 'connect', from: 'QA1', to: 'SF1' } },
   { text: '删掉 QA1', expect: { op: 'remove', key: 'QA1' } },
   { text: '放一个熔断器', expect: { op: 'place', component: 'fuse' } },

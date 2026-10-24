@@ -43,7 +43,7 @@ const CASES = [
   { text: '画个互锁，自锁不要', expect: { op: 'draw', type: 'interlock', attrs: { selflock: false } } },
   { text: '正反转主电路不要', expect: { op: 'draw', type: 'reverse', attrs: { main: false } } },
   { text: '画个正反转，主电路要', expect: { op: 'draw', type: 'reverse', attrs: { main: true } } },
-  { text: '互锁不要', expect: { ok: false } },
+  { text: '互锁不要', expect: { op: 'none' } },
   { text: '先清空，再画个正反转', expect: { op: 'draw', type: 'reverse', steps: ['clear', 'draw'] } },
   { text: '画个起保停，然后加个自锁', expect: { op: 'add', object: 'selflock', steps: ['draw', 'add'] } },
   { text: '不要点动，画个自锁', expect: { op: 'draw', type: 'selflock' } },
@@ -53,6 +53,18 @@ const CASES = [
   { text: '不要自锁，画个正反转', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
   { text: '主电路不带热继电器，画个正反转带主电路', expect: {
     op: 'draw', type: 'reverse', attrs: { main: true, thermal: false }
+  } },
+  { text: '画个正反转别加互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，别加互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，不加自锁', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
+  { text: '画个正反转带主电路，别画熔断器', expect: {
+    op: 'draw', type: 'reverse', attrs: { main: true, fuse: false }
+  } },
+  { text: '画个正反转，去掉自锁', expect: { ok: false } },
+  { text: '画个正反转，别删互锁', expect: { op: 'draw', type: 'reverse', steps: ['draw', 'none'] } },
+  { text: '画个正反转（不要互锁）', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，不加互锁和自锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
   } },
 
   { text: '加个自锁', expect: { op: 'add', object: 'selflock' } },

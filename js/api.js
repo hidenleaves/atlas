@@ -393,11 +393,17 @@
         list.push(p);
       });
 
-      if (list.length < 2) {
-        out.push({
-          node: name, ok: false,
-          error: errs.length ? errs.join('；') : '这个节点少于 2 个引脚，不需要连'
-        });
+      if (errs.length) {
+        out.push({ node: name, ok: false, error: errs.join('；') });
+        return;
+      }
+      if (!list.length) {
+        out.push({ node: name, ok: false, error: '这个节点没有可用引脚' });
+        return;
+      }
+      // 单引脚节点是端点：不需要连线，允许端子/引出线挂在这里
+      if (list.length === 1) {
+        out.push({ node: name, ok: true, pins: 1, wires: 0, note: '单引脚节点，无需连线' });
         return;
       }
 

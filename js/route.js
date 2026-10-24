@@ -244,12 +244,30 @@
       }
     }
 
+    // 动词否定传递：别加互锁 / 不加自锁 / 别画熔断器。
+    // 语法上“别/不”否定的是 add/draw/place，但用户意图通常是否定其后的属性；
+    // 把否定传给该动词后面的属性术语，再由 attrs 步骤处理。
+    tokens.forEach(function (t, idx) {
+      if (t.kind !== 'op' || !t.neg) return;
+      if (t.key !== 'add' && t.key !== 'place' && t.key !== 'draw') return;
+      for (var j = idx + 1; j < tokens.length; j++) {
+        if (tokens[j].kind === 'op') break;
+        if (tokens[j].kind !== 'term') continue;
+        if (tokens[j].def.attrs && tokens[j].def.attrs.length) {
+          tokens[j].neg = !tokens[j].neg;
+        }
+      }
+    });
+
     var posOps = tokens.filter(function (t) { return t.kind === 'op' && !t.neg; });
     var negOps = tokens.filter(function (t) { return t.kind === 'op' && t.neg; });
 
-    // 只有被否定的操作 → 明确的不动作
+    // 只有被否定的操作：如果已经转成属性否定，就继续走 attrs 步骤
     if (!posOps.length && negOps.length) {
-      return { op: 'none', reason: '操作被否定', confidence: 0.9 };
+      var hasAttrNeg = tokens.some(function (t) {
+        return t.kind === 'term' && t.neg && t.def.attrs && t.def.attrs.length;
+      });
+      if (!hasAttrNeg) return { op: 'none', reason: '操作被否定', confidence: 0.9 };
     }
 
     // 主体和属性
@@ -399,7 +417,9 @@
     });
 
     var steps = [];
+    var unparsed = [];
     var pendingAttrs = null, pendingExplicit = null;
+    var hadAttrs = false;
 
     function mergeAttrs(target, r) {
       var at = target.attrs || {};
@@ -412,8 +432,15 @@
 
     clauses.forEach(function (c) {
       var r = parseClause(c);
-      if (!r) return;
+      if (!r) {
+        // 只对“看起来像操作”的子句报未解析；纯语气词/否定类型不打断整句
+        if (scan(c, OP_WORDS).length || scan(c, COMPONENT_WORDS).length || findRefs(c).length) {
+          unparsed.push(c);
+        }
+        return;
+      }
       if (r.op === 'attrs') {
+        hadAttrs = true;
         // 优先附着到上一张绘制步骤；没有就暂存，等下一张绘制
         var target = null;
         for (var i = steps.length - 1; i >= 0; i--) {
@@ -442,9 +469,26 @@
       steps.push(r);
     });
 
+    if (unparsed.length) {
+      return {
+        ok: false,
+        reason: '有没理解的片段：' + unparsed.join('；'),
+        confidence: 0.2,
+        steps: steps
+      };
+    }
+
     var meaningful = steps.filter(function (s) {
       return s.op && s.op !== 'none' && s.op !== 'attrs';
     });
+
+    // 只有属性否定、没有可作用的图：是明确的不动作，而不是“没听懂”
+    if (!meaningful.length && hadAttrs) {
+      return {
+        ok: true, op: 'none', reason: '只有属性否定，没有可作用的对象',
+        confidence: 0.7, steps: []
+      };
+    }
     if (!meaningful.length) {
       if (steps.length) return finalize(steps[0], steps, 0.9);
       return { ok: false, reason: '没有识别出可执行的操作', confidence: 0, steps: [] };

@@ -352,10 +352,15 @@
     }
 
     var replies = [], changed = false;
+    var hasMeaningful = steps.some(function (s) {
+      return s.op && s.op !== 'none' && s.op !== 'attrs';
+    });
     for (var j = 0; j < steps.length; j++) {
+      // 前面已经画过图时，继续输出“好的，不动”会误导用户
+      if (steps[j].op === 'none' && hasMeaningful) continue;
       var res = execStep(steps[j], doc, text);
       if (!res) return null;
-      replies.push(res.reply);
+      if (res.reply) replies.push(res.reply);
       changed = changed || res.changed;
       if (!res.ok) break;
     }
