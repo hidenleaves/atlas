@@ -3,18 +3,18 @@
 - 起始：2026-10-23 19:35 +0800
 - 目标结束：2026-10-24 01:35 +0800
 - 规则：每轮一个主题；跑完测试再 commit + push；轮次之间用 ScheduleWakeup 继续。
-- 最后更新：2026-10-24 18:52 · 第 23 轮
+- 最后更新：2026-10-25 · 第 24 轮
 
-## Session 总结（19:35 起，23 轮，含 10-24 续跑）
+## Session 总结（19:35 起，24 轮，含 10-24 续跑）
 
-- 23 轮迭代，每轮先跑测试再 commit + push；抽查的 GitHub Actions 全部成功。
+- 24 轮迭代，每轮先跑测试再 commit + push；抽查的 GitHub Actions 全部成功。
 - 提示词/人设卡：单一事实源 `js/prompt.js`，8 个工具 schema 收紧，`draw_template` few-shot 示例，`提示词.md` 自动生成。
-- 路由 v2：否定作用域、角色判定、复合指令、前置/后置属性、动词否定传递；route 63 条 + fuzz 108 条组合回归。
+- 路由 v2：否定作用域、角色判定、复合指令、前置/后置属性、动词否定传递、secondary 降级、并列否定；route 79 条 + fuzz 124 条组合回归。
 - 画板可靠性：`draw_plan` 原子回滚、`align` 预排序、母线避让、端子外侧引线、电源回路闭合检查、`wireNodes` 侧向引出、单引脚端点。
 - 模板：点动 / 起保停 / 互锁 / 正反转 / 正反转+主电路 / 两地控制；路由、对话、模板库共用 `drawTemplate`。
 - UX：对话快捷指令、问题定位高亮、窄屏面板、focus-visible、reduced-motion。
 - 工程：`npm test` + GitHub Actions；README、提示词文档、优化日志、CHANGELOG 同步。
-- 回归：route 63 / fuzz 108 / api 49 / template 8 / prompt 37，合计 265 条。
+- 回归：route 79 / fuzz 124 / api 56 / template 8 / prompt 37，合计 304 条。
 - 剩余大项：星三角（需要 6 端子电机）、主电路模板参数化、重复 `type:key`、`drawTemplate` API 层拒绝不支持的开关。
 
 ## 第 1 轮 · 19:35
@@ -293,6 +293,20 @@ CI：`ce6df0c` 复查为 `completed / success`。
 
 验证：`npm test` 全过；Edge 扰动页 11/11 PASS。
 
+## 第 24 轮 · 2026-10-25（续跑）
+
+主题：secondary 降级 + remove→draw 时序（按 WorkBuddy 第 23 轮 review）。
+
+- `route.js`：没有强主体、没有动词的 secondary 子句，在前序 `draw` 之后降级为 `attrs`，
+  不再生成 `draw:selflock` / `draw:interlock` 覆盖前图。
+- 并列否定：`互锁和自锁都不要`、`互锁、自锁都不要`、`自锁和互锁都别加` 整组否定。
+- “省掉 / 省去”进入否定词表；“别”字识别排除“特别/分别/别人”等常见词。
+- `把互锁去掉，画个正反转`：`remove` 先于 `draw` 时折入 `attrs.interlock=false`，
+  draw 的默认值不再把互锁画回来。
+- 回归：route 79、fuzz 124、api 56、template 8、prompt 37，合计 304；真页面 6/6 PASS。
+- 独立审查套件 13/18：未过 4 条中，1 条是套件期望 model 与本轮 review 表格 `nc=0` 冲突；
+  其余为 review 明确列出的非阻塞项（数量短语、`drawTemplate` thermal、图集端子 name）。
+
 ## 待办队列
 
 1. ~~失败链路：`draw_plan` 的 ok/finished 语义、`clear` 回滚、`align` 预扫描。~~（第 2 轮完成）
@@ -322,6 +336,9 @@ CI：`ce6df0c` 复查为 `completed / success`。
 25. ~~CHANGELOG / 进度汇总。~~（第 22 轮完成）
 26. ~~AI 指令否定传递、单引脚节点、未解析子句。~~（第 23 轮完成）
 27. `drawTemplate` API 层拒绝 `main:true` + 明确关闭元件的组合；图集端子补 `name`。
+28. ~~secondary 降级 + remove→draw 时序。~~（第 24 轮完成）
+29. 数量短语（“用2个接触器”）不应生成 `place`（非阻塞）。
+30. “请把互锁去掉，画个正反转” perturb 套件期望 model，与 review 表格 `nc=0` 冲突，待 WorkBuddy 明确。
 
 ## 参考
 

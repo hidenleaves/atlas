@@ -34,7 +34,7 @@ const CASES = [
 
   { text: '不要正反转，只要互锁', expect: { op: 'draw', type: 'interlock' } },
   { text: '不能没有互锁', expect: { op: 'draw', type: 'interlock' } },
-  { text: '把互锁去掉，再画个正反转', expect: { op: 'draw', type: 'reverse', steps: ['remove', 'draw'] } },
+  { text: '把互锁去掉，再画个正反转', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false }, steps: ['draw'] } },
   { text: '清空，画一个互锁', expect: { op: 'draw', type: 'interlock', clear: true, steps: ['clear', 'draw'] } },
   { text: '清空再画互锁', expect: { op: 'draw', type: 'interlock', clear: true, steps: ['clear', 'draw'] } },
 
@@ -66,6 +66,48 @@ const CASES = [
   { text: '画个正反转，不加互锁和自锁', expect: {
     op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
   } },
+  { text: '画个正反转，省掉自锁', expect: { op: 'draw', type: 'reverse', attrs: { selflock: false } } },
+  { text: '画个正反转，省掉互锁', expect: { op: 'draw', type: 'reverse', attrs: { interlock: false } } },
+  { text: '画个正反转，省掉自锁和互锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
+  } },
+  { text: '画个正反转，不要互锁要自锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: true }
+  } },
+  { text: '画个正反转，不要自锁要互锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: true, selflock: false }
+  } },
+  { text: '画个正反转，不要互锁，要自锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: true }
+  } },
+  { text: '画个正反转，不要互锁和自锁', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
+  } },
+  { text: '画个正反转，互锁和自锁都不要', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
+  } },
+  { text: '画个正反转，互锁、自锁都不要', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
+  } },
+  { text: '画个正反转，自锁和互锁都别加', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false, selflock: false }
+  } },
+  { text: '请把互锁去掉，画个正反转', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false }, steps: ['draw']
+  } },
+  { text: '把互锁去掉，画个正反转', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false }, steps: ['draw']
+  } },
+  { text: '去掉互锁，画个正反转', expect: {
+    op: 'draw', type: 'reverse', attrs: { interlock: false }, steps: ['draw']
+  } },
+  { text: '画个正反转，把互锁去掉', expect: {
+    op: 'remove', object: 'interlock', steps: ['draw', 'remove']
+  } },
+  { text: '把互锁去掉，画个正反转带主电路', expect: {
+    op: 'draw', type: 'reverse', attrs: { main: true, interlock: false }, steps: ['draw']
+  } },
+  { text: '画个正反转，带QA1和QA2', expect: { ok: false } },
 
   { text: '加个自锁', expect: { op: 'add', object: 'selflock' } },
   { text: '在现有图上加个自锁', expect: { op: 'add', object: 'selflock' } },

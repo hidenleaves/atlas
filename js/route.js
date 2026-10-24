@@ -29,7 +29,7 @@
 
   // 否定词：长的排前面，先吃长的，避免"不要"被拆成"不"+"要"。
   var NEG_WORDS = [
-    '不需要', '不用', '不要', '不带', '不含', '没有', '无需', '省去', '不能', '无法',
+    '不需要', '不用', '不要', '不带', '不含', '没有', '无需', '省去', '省掉', '不能', '无法',
     '别', '不', '没', '无'
   ].sort(function (a, b) { return b.length - a.length; });
 
@@ -139,11 +139,12 @@
       for (var k = 0; k < NEG_WORDS.length; k++) {
         var w = NEG_WORDS[k];
         if (s.substr(i, w.length) !== w) continue;
-        // "别"只在一句开头、或后面紧跟动词/把时才算否定，
-        // 否则"特别/分别/别人"会被误判。
+        // "别"是常见否定词，但要排除"特别/分别/个别/区别/告别/类别/性别/别人"
         if (w === '别') {
+          var prev = i > 0 ? s.charAt(i - 1) : '';
           var next = s.charAt(i + 1);
-          if (i !== 0 && !/[画删去动碰改把]/.test(next)) continue;
+          if (/[特分个差告类性区别辨]/.test(prev)) continue;
+          if (next === '人') continue;
         }
         hit = w;
         break;
@@ -198,7 +199,8 @@
 
   /* ---------------- 单个子句 ---------------- */
 
-  function parseClause(clause) {
+  function parseClause(clause, opts) {
+    opts = opts || {};
     var ops = scan(clause, OP_WORDS);
     var terms = scan(clause, TERMS);
 
@@ -259,6 +261,33 @@
       }
     });
 
+    // 并列否定：不要互锁和自锁 / 互锁、自锁都不要。
+    for (var ci = tokens.length - 1; ci >= 1; ci--) {
+      var ta = tokens[ci - 1], tb = tokens[ci];
+      if (ta.kind !== 'term' || tb.kind !== 'term') continue;
+      var between = clause.slice(ta.end, tb.at);
+      if (!/^(和|与|及|跟|以及|、)$/.test(between)) continue;
+      if (ta.neg || tb.neg) { ta.neg = true; tb.neg = true; }
+    }
+
+    // 反向动词否定：自锁和互锁都别加。
+    // 否定词在动词上、动词后面没有宾语时，回传给前面通过并列连接的属性术语。
+    tokens.forEach(function (t, idx) {
+      if (t.kind !== 'op' || !t.neg) return;
+      if (t.key !== 'add' && t.key !== 'place' && t.key !== 'draw') return;
+      var hasTermAfter = false;
+      for (var j = idx + 1; j < tokens.length; j++) {
+        if (tokens[j].kind === 'term') { hasTermAfter = true; break; }
+      }
+      if (hasTermAfter) return;
+      for (var k = idx - 1; k >= 0; k--) {
+        if (tokens[k].kind === 'op') break;
+        if (tokens[k].kind === 'term' && tokens[k].def.attrs && tokens[k].def.attrs.length) {
+          tokens[k].neg = true;
+        }
+      }
+    });
+
     var posOps = tokens.filter(function (t) { return t.kind === 'op' && !t.neg; });
     var negOps = tokens.filter(function (t) { return t.kind === 'op' && t.neg; });
 
@@ -289,12 +318,15 @@
     });
 
     var subject = null;
+    var subjectFromPrimary = false;
     var P = uniq(primaryPos);
     var S = uniq(secondaryPos);
     if (P.length > 1) return null;                 // 多个主类型，交模型
-    if (P.length === 1) subject = P[0];
-    else if (S.length > 1) return null;            // 多个候选类型，交模型
-    else if (S.length === 1) subject = S[0];
+    if (P.length === 1) { subject = P[0]; subjectFromPrimary = true; }
+    else if (S.length > 1) {
+      // “自锁和互锁都要”跟在上一张图后面时是属性，不是又画一张
+      if (!(opts.hasDraw && !posOps.length)) return null;
+    } else if (S.length === 1) subject = S[0];
 
     var attrs = subject ? copy(DEFAULT_ATTRS[subject])
       : { interlock: false, selflock: false, main: false, fuse: false, thermal: false };
@@ -320,6 +352,19 @@
         var ex = {};
         Object.keys(patch).forEach(function (k) { ex[k] = true; });
         return { op: 'attrs', attrs: patch, explicit: ex, confidence: 0.8 };
+      }
+    }
+
+    // 跟在上一张图后面的 secondary 属性：降级成 attrs，
+    // 不要覆盖成 draw:selflock / draw:interlock。
+    if (opts.hasDraw && !opKey && !subjectFromPrimary) {
+      var patch2 = {};
+      Object.keys(attrPos).forEach(function (k) { patch2[k] = true; });
+      Object.keys(attrNeg).forEach(function (k) { patch2[k] = false; });
+      if (Object.keys(patch2).length) {
+        var ex2 = {};
+        Object.keys(patch2).forEach(function (k) { ex2[k] = true; });
+        return { op: 'attrs', attrs: patch2, explicit: ex2, confidence: 0.85 };
       }
     }
 
@@ -431,7 +476,8 @@
     }
 
     clauses.forEach(function (c) {
-      var r = parseClause(c);
+      var hasDraw = steps.some(function (s) { return s.op === 'draw'; });
+      var r = parseClause(c, { hasDraw: hasDraw });
       if (!r) {
         // 只对“看起来像操作”的子句报未解析；纯语气词/否定类型不打断整句
         if (scan(c, OP_WORDS).length || scan(c, COMPONENT_WORDS).length || findRefs(c).length) {
@@ -468,6 +514,25 @@
       }
       steps.push(r);
     });
+
+    // “把互锁去掉，画个正反转”：remove 先于 draw 时，把“去掉互锁”
+    // 记到后续 draw 的 attrs 上，避免 draw 的默认值又把它画回来。
+    for (var ri = 0; ri < steps.length - 1; ri++) {
+      var rm = steps[ri];
+      if (rm.op !== 'remove' || rm.object !== 'interlock') continue;
+      var di = ri + 1;
+      while (di < steps.length && (steps[di].op === 'none' || steps[di].op === 'attrs')) di++;
+      var dr = steps[di];
+      if (!dr || dr.op !== 'draw' || dr.type !== 'reverse') continue;
+      // 后面明确要互锁时，以后面为准
+      if (dr.explicit && dr.explicit.interlock && dr.attrs && dr.attrs.interlock === true) continue;
+      dr.attrs = dr.attrs || {};
+      dr.attrs.interlock = false;
+      dr.explicit = dr.explicit || {};
+      dr.explicit.interlock = true;
+      steps.splice(ri, 1);
+      ri--;
+    }
 
     if (unparsed.length) {
       return {

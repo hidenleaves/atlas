@@ -119,7 +119,7 @@ python tools/qet-import.py   # 重新生成符号库（需要网络）
 
 CI 在 `.github/workflows/test.yml`：push 到 main / PR / 手动触发，Node 22，跑单元测试并检查提示词文档一致性。
 
-当前回归规模：route 63、route-fuzz 108、api 49、template 8、prompt 37。
+当前回归规模：route 79、route-fuzz 124、api 56、template 8、prompt 37。
 优化迭代记录见 `docs/optimization-log.md`，变更汇总见 `CHANGELOG.md`。
 
 ## 符号来源与许可

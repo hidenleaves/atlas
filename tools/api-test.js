@@ -160,7 +160,8 @@ check('interpretV2：没有互锁时，去除互锁 + 画正反转仍继续', fu
   const r = C.interpretV2('把互锁去掉，再画个正反转', doc);
   assert(r && r.changed, JSON.stringify(r));
   assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '应画出正反转');
-  assert(/没找到互锁触点/.test(r.reply), '应提示没找到互锁');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应画');
+  assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
 });
 
 check('interpretV2：清空 + 画一个互锁', function () {
@@ -251,6 +252,64 @@ check('interpretV2：动词否定——不加自锁', function () {
   assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁应保留');
   assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '自锁不应画');
   assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
+});
+
+check('interpretV2：省掉自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，省掉自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 2, '互锁应保留');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '自锁不应画');
+});
+
+check('interpretV2：不要互锁要自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，不要互锁要自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应画');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁应保留');
+});
+
+check('interpretV2：不要互锁，要自锁', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，不要互锁，要自锁', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应画');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 2, '自锁应保留');
+});
+
+check('interpretV2：互锁和自锁都不要', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，互锁和自锁都不要', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 4, '应只剩两个按钮和两个线圈');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应画');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '自锁不应画');
+});
+
+check('interpretV2：自锁和互锁都别加', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画个正反转，自锁和互锁都别加', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应画');
+  assert(doc.comps.filter(function (c) { return c.type === 'no'; }).length === 0, '自锁不应画');
+});
+
+check('interpretV2：请把互锁去掉，画个正反转', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('请把互锁去掉，画个正反转', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.length === 6, '应画无互锁正反转');
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁不应复活');
+  assert(!/好的，不动/.test(r.reply), '不应输出好的不动');
+  assert(!/没找到互锁触点/.test(r.reply), '不应先执行一次空的 remove');
+});
+
+check('interpretV2：把互锁去掉，画个正反转带主电路交给模型', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('把互锁去掉，画个正反转带主电路', doc);
+  assert(r === null, '固定主电路模板不能去互锁，应交给模型');
+  assert(doc.comps.length === 0, '不应先改画布');
 });
 
 check('interpretV2：去掉自锁交给模型', function () {
