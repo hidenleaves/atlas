@@ -1,5 +1,16 @@
 'use strict';
-/* 第 23 轮独立扰动审查 —— 只挑报告里没测的边界 */
+/* ============================================================
+   perturb-review.js — WorkBuddy 的独立审查套件
+   ------------------------------------------------------------
+   与 Claude 自己的 route-test / route-fuzz 分开维护，防止
+   「自己出题自己答」。Claude 不得修改本文件。
+
+   两档判定：
+     BLOCKING —— 必修项。任何一条失败，VERDICT 只能是 CONTINUE。
+     KNOWN    —— 已确认的边角缺陷。只记录，不阻塞；修好后自然变 ✓。
+
+   运行：node tools/perturb-review.js
+   ============================================================ */
 global.window = global;
 require('../js/editor-model.js');
 require('../js/advisor.js');
@@ -9,52 +20,57 @@ global.PLCRoute = require('../js/route.js');
 global.PLCPrompt = require('../js/prompt.js');
 global.PLCTemplates = require('../js/templates.js');
 require('../js/chat.js');
-const M = global.PLCEditorModel, A = global.PLCApi, C = global.PLCChat, R = global.PLCRoute;
+const M = global.PLCEditorModel, A = global.PLCApi, C = global.PLCChat;
 
-let bad = 0, good = 0, model = 0;
+const BLOCKING = [
+  /* ---- 第 23 轮暴露的 P0：secondary 降级 + remove→draw 时序 ---- */
+  ['画个正反转，省掉自锁',            { nc: 2, no: 0 },           '属性否定（省掉）'],
+  ['画个正反转，不要互锁要自锁',       { nc: 0, no: 2 },           '否定只作用前项'],
+  ['画个正反转，不要自锁要互锁',       { nc: 2, no: 0 },           '否定只作用前项（镜像）'],
+  ['画个正反转，互锁和自锁都不要',      { nc: 0, no: 0 },           '后置否定 + 并列'],
+  ['请把互锁去掉，画个正反转',         { nc: 0 },                  '把字句宾语前置'],
+  ['画个正反转，把互锁删了',           { nc: 0 },                  '删互锁后不应复活'],
+  ['画个正反转，把自锁加上',           { nc: 2, no: 2 },           '加属性不应改主体'],
+  ['不要互锁',                       { none: true },             '无对象时不画图'],
+  ['互锁和自锁都不要',                { none: true },             '无对象时不画图（并列）'],
 
-// 期望：nc/no 数量或 fuse 数量；'model' = 应回退模型；'none' = 不动作
-const cases = [
-  // A. 否定与时态/语气的组合（报告全没测）
-  ['请把互锁去掉，画个正反转',       { model: true },  '宾语前置+动词被否'],
-  ['画个正反转，不想要互锁',         { nc: 0 },        '"不想要"不在词表'],
-  ['画个正反转，无需互锁',           { nc: 0 },        '"无需"在词表'],
-  ['画个正反转，省掉自锁',           { no: 0 },        '"省掉"在词表'],
+  /* ---- 动词否定（防回退） ---- */
+  ['画个正反转别加互锁',              { nc: 0 },                  '动词否定'],
+  ['画个正反转，不加自锁',            { nc: 2, no: 0 },            '动词否定（自锁）'],
+  ['画个正反转，无需互锁',            { nc: 0 },                  '无需'],
+  ['画个正反转，别不要互锁',           { nc: 2 },                  '双重否定 = 要'],
+  ['画个正反转不能没有互锁',           { nc: 2, no: 2 },            '双重否定 = 要'],
 
-  // B. 否定作用域歧义（真难点）
-  ['画个正反转，不要互锁要自锁',      { nc: 0, no: 2 }, '否定只在互锁上'],
-  ['画个正反转，不要自锁要互锁',      { nc: 2, no: 0 }, '否定只在自锁上'],
-  ['画个正反转，互锁和自锁都不要',    { nc: 0, no: 0 }, '后置否定+并列'],
+  /* ---- 基线：改动不能误伤普通句 ---- */
+  ['画个正反转',                     { nc: 2, no: 2, comps: 8 }, '正反转基线'],
+  ['画个起保停',                     { nc: 0, no: 1, comps: 4 }, '起保停基线'],
+  ['画个互锁',                       { nc: 2, no: 0, comps: 6 }, '互锁基线'],
+  ['画个点动',                       { nc: 0, no: 0, comps: 2 }, '点动基线'],
+  ['画个正反转，主电路不要',           { nc: 2, no: 2 },           '主电路否定不伤控制回路'],
+  ['清空，画个正反转，不要自锁',       { nc: 2, no: 0 },           'clear 后属性仍生效'],
+  ['画个正反转带主电路',              { comps: 26 },              '主电路模板'],
 
-  // C. 双重否定（报告点名让测，但没说期望）
-  ['画个正反转，别不要互锁',         { nc: 2 },        '双重否定=要'],
-  ['画个正反转不能没有互锁',         { nc: 2 },        '双重否定=要'],
-
-  // D. 数字/单位干扰（findRefs 可能误吃）
-  ['画个正反转，用2个接触器',        { type: 'reverse' },'数字不应干扰'],
-  ['画个正反转，带QA1和QA2',         { type: 'reverse' },'代号不应干扰'],
-
-  // E. 单引脚回路的极端形态
-  ['__SINGLE_TWO_TERMS__',           { single: true }, '两端子单支路'],
-  ['__SINGLE_NO_TERM__',             { singleNoTerm: true }, '无需端子'],
-
-  // F. 空节点 / 全错引脚
-  ['__EMPTY_NODE__',                 { emptyNode: true }, '空 pins 数组'],
-  ['__BAD_PIN__',                    { badPin: true },  '引脚不存在'],
-
-  // G. 模板接口层：报告说 thermal 静默忽略
-  ['__TPL_THERMAL__',                { thermalIgnored: true }, 'drawTemplate thermal:false'],
-
-  // H. 图集端子 name 缺失
-  ['__ATLAS_TERM_NAME__',            { termName: true }, '图集端子是否有 name'],
-
-  // I. 连续两次 draw_plan（状态污染）
-  ['__TWO_PLANS__',                  { twoPlans: true }, '连续两次 draw_plan'],
+  /* ---- draw_plan / wireNodes 单引脚 ---- */
+  ['__SINGLE_TWO_TERMS__',           { fn: 'singleTwoTerms' },   '单引脚串联 + 双端子'],
+  ['__SINGLE_NO_TERM__',             { fn: 'singleNoTerm' },     '单引脚串联无端子'],
+  ['__EMPTY_NODE__',                 { fn: 'emptyNode' },        '空 pins 必须拒绝'],
+  ['__BAD_PIN__',                    { fn: 'badPin' },           '不存在引脚必须拒绝'],
+  ['__TWO_PLANS__',                  { fn: 'twoPlans' },         '连续两次 draw_plan 无污染'],
+  ['__TEMPLATES__',                  { fn: 'templates' },        '模板全部 level=ok'],
 ];
 
-function run(q, exp) {
-  // 特殊探针
-  if (q === '__SINGLE_TWO_TERMS__') {
+const KNOWN = [
+  ['画个正反转，只要自锁',            { nc: 0, no: 2 },           '排他语义「只要」未覆盖'],
+  ['画个正反转，除了互锁都要',         { nc: 0, no: 2 },           '排除式「除了…都要」未覆盖'],
+  ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件'],
+  ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型'],
+  ['画个互锁，要自锁',                { nc: 2 },                  '复合加属性回退模型'],
+  ['__TPL_THERMAL__',                { fn: 'tplThermal' },       'drawTemplate 静默忽略 thermal'],
+  ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name'],
+];
+
+const PROBES = {
+  singleTwoTerms() {
     const d = M.blank();
     const r = A.drawPlan(d, {
       components: [{ type: 'btnNo', key: 'SF1' }, { type: 'coil', key: 'QA1', near: 'SF1' }],
@@ -66,89 +82,116 @@ function run(q, exp) {
       w.pts.some(p => Math.abs(p[0] - t.x) < 1 && Math.abs(p[1] - t.y) < 1)));
     const onPin = terms.some(t => M.pinsOf(d).some(p => Math.hypot(p.x - t.x, p.y - t.y) < 1));
     return { ok: r.ok && terms.length === 2 && wiresOk && !onPin,
-      detail: `ok=${r.ok} terms=${terms.length} 有引线=${wiresOk} 压引脚=${onPin} level=${r.level}` };
-  }
-  if (q === '__SINGLE_NO_TERM__') {
+      detail: `ok=${r.ok} terms=${terms.length} 引线=${wiresOk} 压引脚=${onPin}` };
+  },
+  singleNoTerm() {
     const d = M.blank();
     const r = A.drawPlan(d, {
       components: [{ type: 'btnNo', key: 'SF1' }, { type: 'coil', key: 'QA1', near: 'SF1' }],
       nodes: [{ name: 'L', pins: ['SF1#0'] }, { name: 'A', pins: ['SF1#1', 'QA1#0'] }, { name: 'N', pins: ['QA1#1'] }]
     });
-    return { ok: r.ok, detail: `ok=${r.ok} comps=${d.comps.length} wires=${d.wires.length} level=${r.level}` };
-  }
-  if (q === '__EMPTY_NODE__') {
+    return { ok: r.ok && d.comps.length === 2, detail: `ok=${r.ok} comps=${d.comps.length} level=${r.level}` };
+  },
+  emptyNode() {
     const d = M.blank();
     const r = A.drawPlan(d, {
       components: [{ type: 'btnNo', key: 'SF1' }, { type: 'coil', key: 'QA1', near: 'SF1' }],
       nodes: [{ name: 'L', pins: [] }, { name: 'A', pins: ['SF1#1', 'QA1#0'] }]
     });
-    return { ok: r.ok === false && r.rolledBack === true,
-      detail: `ok=${r.ok} rolledBack=${r.rolledBack} 应拒绝空节点` };
-  }
-  if (q === '__BAD_PIN__') {
+    return { ok: r.ok === false && r.rolledBack === true, detail: `ok=${r.ok} rolledBack=${r.rolledBack}` };
+  },
+  badPin() {
     const d = M.blank();
-    const r = A.drawPlan(d, {
-      components: [{ type: 'btnNo', key: 'SF1' }],
-      nodes: [{ name: 'L', pins: ['SF1#0', 'SF1#9'] }]
+    const r = A.drawPlan(d, { components: [{ type: 'btnNo', key: 'SF1' }], nodes: [{ name: 'L', pins: ['SF1#0', 'SF1#9'] }] });
+    return { ok: r.ok === false, detail: `ok=${r.ok} rolledBack=${r.rolledBack}` };
+  },
+  twoPlans() {
+    const d = M.blank();
+    const mk = (n) => ({
+      components: [{ type: 'btnNo', key: 'SF' + n }, { type: 'coil', key: 'QA' + n, near: 'SF' + n }],
+      nodes: [{ name: 'L', pins: ['SF' + n + '#0'] }, { name: 'A', pins: ['SF' + n + '#1', 'QA' + n + '#0'] },
+             { name: 'N', pins: ['QA' + n + '#1'] }]
     });
-    return { ok: r.ok === false, detail: `ok=${r.ok} rolledBack=${r.rolledBack} err=${String(r.error).slice(0, 40)}` };
-  }
-  if (q === '__TPL_THERMAL__') {
+    const r1 = A.drawPlan(d, mk(1)), r2 = A.drawPlan(d, mk(2));
+    return { ok: r1.ok && r2.ok && d.comps.length === 4, detail: `comps=${d.comps.length}` };
+  },
+  templates() {
+    const kinds = ['jog', 'selflock', 'interlock', 'reverse', 'remote'];
+    const bad = [];
+    kinds.forEach(k => {
+      const d = M.blank();
+      const r = A.drawTemplate(d, { kind: k });
+      if (!r.ok || r.level !== 'ok') bad.push(k + '=' + (r.level || 'fail'));
+    });
+    const d = M.blank();
+    const r = A.drawTemplate(d, { kind: 'reverse', main: true });
+    if (!r.ok || r.level !== 'ok') bad.push('reverseMain=' + (r.level || 'fail'));
+    return { ok: !bad.length, detail: bad.length ? bad.join(',') : '6/6 level=ok' };
+  },
+  tplThermal() {
     const d = M.blank();
     const r = A.drawTemplate(d, { kind: 'reverse', main: true, thermal: false });
-    const thermal = d.comps.filter(c => c.type === 'thermal').length;
-    return { ok: false, detail: `ok=${r.ok} thermal元件=${thermal} → 参数被${thermal ? '静默忽略(已知)' : '采纳'}` };
-  }
-  if (q === '__ATLAS_TERM_NAME__') {
+    const t = d.comps.filter(c => c.type === 'thermal').length;
+    // 修好 = 明确拒绝（ok:false）；仍静默出图 = 未修
+    return { ok: r.ok === false, detail: `ok=${r.ok} thermal=${t}` };
+  },
+  atlasTermName() {
     const d = M.blank();
     A.drawTemplate(d, { kind: 'remote' });
     const terms = d.marks.filter(m => m.kind === 'term');
-    const named = terms.filter(t => t.name).length;
-    return { ok: false, detail: `${terms.length} 个端子，有 name 的 ${named} 个(已知差异)` };
+    const named = terms.filter(x => x.name).length;
+    return { ok: terms.length > 0 && named === terms.length, detail: `${terms.length} 个端子，带 name ${named}` };
   }
-  if (q === '__TWO_PLANS__') {
-    const d = M.blank();
-    const r1 = A.drawPlan(d, {
-      components: [{ type: 'btnNo', key: 'SF1' }, { type: 'coil', key: 'QA1', near: 'SF1' }],
-      nodes: [{ name: 'L', pins: ['SF1#0'] }, { name: 'A', pins: ['SF1#1', 'QA1#0'] }, { name: 'N', pins: ['QA1#1'] }]
-    });
-    const c1 = d.comps.length;
-    const r2 = A.drawPlan(d, {
-      components: [{ type: 'btnNo', key: 'SF2' }, { type: 'coil', key: 'QA2', near: 'SF2' }],
-      nodes: [{ name: 'L', pins: ['SF2#0'] }, { name: 'A', pins: ['SF2#1', 'QA2#0'] }, { name: 'N', pins: ['QA2#1'] }]
-    });
-    return { ok: r1.ok && r2.ok && d.comps.length === 4,
-      detail: `r1=${r1.ok} r2=${r2.ok} comps ${c1}→${d.comps.length}` };
-  }
+};
 
-  // 普通路由用例
+function evalRoute(q, exp) {
   const d = M.blank();
-  const rt = R.route(q);
-  const res = C.interpretV2(q, d);
-  const nc = d.comps.filter(c => c.type === 'nc').length;
-  const no = d.comps.filter(c => c.type === 'no').length;
-  const fuse = d.comps.filter(c => /fuse/.test(c.type)).length;
+  let res;
+  try { res = C.interpretV2(q, d); } catch (e) { return { ok: false, detail: 'EXCEPTION ' + e.message }; }
+  const cnt = t => d.comps.filter(c => c.type === t).length;
+  const nc = cnt('nc'), no = cnt('no'), comps = d.comps.length;
 
-  if (exp.model) {
-    return { ok: res === null, detail: res ? `未回退模型！画了 comps=${d.comps.length} nc=${nc}` : '正确回退模型' };
-  }
-  if (res === null) return { ok: !!exp.model, detail: '回退模型', kind: 'model' };
+  if (exp.none) return { ok: comps === 0, detail: `comps=${comps}（应留空）` };
+  if (res === null) return { ok: !!exp.model, detail: '回退模型', model: true };
   const bads = [];
   if (exp.nc != null && nc !== exp.nc) bads.push(`nc=${nc}≠${exp.nc}`);
   if (exp.no != null && no !== exp.no) bads.push(`no=${no}≠${exp.no}`);
-  if (exp.type && rt.type !== exp.type) bads.push(`type=${rt.type}≠${exp.type}`);
-  const contradiction = /好的，不动/.test(res.reply);
-  if (contradiction && /画好了/.test(res.reply)) bads.push('回复自相矛盾');
-  return { ok: !bads.length, detail: `nc=${nc} no=${no} comps=${d.comps.length}` + (bads.length ? ' ✗ ' + bads.join(',') : '') };
+  if (exp.comps != null && comps !== exp.comps) bads.push(`comps=${comps}≠${exp.comps}`);
+  if (/画好了/.test(res.reply) && /好的，不动/.test(res.reply)) bads.push('回复自相矛盾');
+  return { ok: !bads.length, detail: `nc=${nc} no=${no} comps=${comps}` + (bads.length ? ' ✗ ' + bads.join(',') : '') };
 }
 
-console.log('=== 第 23 轮独立扰动（' + cases.length + ' 条，与报告不重复）===');
-for (const [q, exp, why] of cases) {
-  let r;
-  try { r = run(q, exp); } catch (e) { r = { ok: false, detail: 'EXCEPTION ' + e.message }; }
-  const mark = r.ok ? '✓' : '✗';
-  if (r.ok) good++; else if (r.kind === 'model') model++; else bad++;
-  const label = q.startsWith('__') ? q.replace(/__/g, '') : q;
-  console.log(mark, label.padEnd(26), '|', r.detail, '|', why);
+function run(list) {
+  let pass = 0, fail = 0, model = 0;
+  const failed = [];
+  for (const [q, exp, why] of list) {
+    let r;
+    if (exp.fn) {
+      try { r = PROBES[exp.fn](); } catch (e) { r = { ok: false, detail: 'EXCEPTION ' + e.message }; }
+    } else {
+      r = evalRoute(q, exp);
+    }
+    const label = q.startsWith('__') ? q.replace(/__/g, '') : q;
+    if (r.model) model++; else if (r.ok) pass++; else { fail++; failed.push(label + ' → ' + r.detail); }
+    console.log((r.ok ? '✓' : '✗'), label.padEnd(24), '|', r.detail, '|', why);
+  }
+  return { pass, fail, model, failed };
 }
-console.log('\n通过 ' + good + ' / 失败 ' + bad + ' / 回退模型 ' + model + '  共 ' + cases.length);
+
+console.log('=== BLOCKING（必修，任何失败即 CONTINUE）===');
+const b = run(BLOCKING);
+console.log(`\n必修：通过 ${b.pass} / 失败 ${b.fail} / 回退模型 ${b.model}  共 ${BLOCKING.length}`);
+
+console.log('\n=== KNOWN（已知边角，不阻塞）===');
+const k = run(KNOWN);
+console.log(`\n已知：通过 ${k.pass} / 待修 ${k.fail}  共 ${KNOWN.length}`);
+
+console.log('\n' + '='.repeat(56));
+if (b.fail === 0) {
+  console.log('BLOCKING 全绿 —— 可以讨论 VERDICT: STOP');
+} else {
+  console.log('BLOCKING 有 ' + b.fail + ' 条失败 —— VERDICT: CONTINUE');
+  b.failed.forEach(x => console.log('  · ' + x));
+}
+console.log('='.repeat(56));
+process.exitCode = b.fail === 0 ? 0 : 1;
