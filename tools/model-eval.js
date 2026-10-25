@@ -72,8 +72,11 @@ const FAKE_POLICY = arg('fake') || 'good';
 const API_KEY = arg('key') || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || '';
 const VERBOSE = has('verbose');
 const ONLY = arg('only');
-// 默认复刻产品分派（离线优先）；--no-route 只量模型本身
-const NO_ROUTE = has('no-route');
+// 默认复刻产品分派（离线优先）；--no-route 只量模型本身。
+// fake / selftest 必须强制只走模型：假模型的作用就是模拟「模型那一段」，
+// 如果也让它们走离线，绝大多数用例根本轮不到假模型，
+// good/sloppy/lazy/dsml 四种策略会退化成几乎一样的结果，判别力断言全部失效。
+const NO_ROUTE = has('no-route') || MODE === 'fake' || MODE === 'selftest';
 
 if (!MODE) {
   console.log('用法：');

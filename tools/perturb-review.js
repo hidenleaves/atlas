@@ -70,13 +70,16 @@ const BLOCKING = [
   ['__MAIN_ONLY__',                  { fn: 'mainOnly' },         '只画主电路不能因缺线圈被拦'],
   ['__THERMAL_CONTACT__',            { fn: 'thermalContact' },   '热继电器触点无线圈不该报错'],
   ['__COIL_MISSING__',               { fn: 'coilMissing' },      '真漏画线圈仍须报错'],
+  // 第 29 轮修好，升入必修：电路级描述不能降级成元件放置
+  ['__CIRCUIT_OVERMATCH__',          { fn: 'circuitOvermatch' }, '要电路不能只放元件'],
+  ['__TEMPLATE_OVERMATCH__',         { fn: 'templateOvermatch' }, '模板匹配了但漏掉附加要求'],
 ];
 
 const KNOWN = [
   ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件（已裁定放弃）'],
   ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型（安全）'],
   ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name（范围外）'],
-  ['__CIRCUIT_OVERMATCH__',          { fn: 'circuitOvermatch' },  '离线路由过度匹配：要电路却只放元件（P0 待修）'],
+  ['__LAYOUT_SHORT__',               { fn: 'layoutShort' },      'draw_plan 同列短路整图回滚（P0 待修）'],
 ];
 
 const PROBES = {
@@ -250,6 +253,52 @@ const PROBES = {
       }
     });
     return { ok: !bad.length, detail: detail.join(' / ') };
+  },
+  templateOvermatch() {
+    // 模板匹配上了，但用户还有附加要求，模板画不全。
+    // 「点动加自锁的混合控制，点动优先」→ 只给点动（2 元件），
+    // 自锁和「点动优先」全丢。这类应交给模型，或真正画出混合控制。
+    const cases = [
+      ['画个点动加自锁的混合控制，点动优先', 4],
+      ['画个正反转，再带个运行指示灯', 9]
+    ];
+    const detail = [];
+    let bad = 0;
+    cases.forEach(([q, min]) => {
+      const d = M.blank();
+      const res = C.interpretV2(q, d);
+      if (res === null) { detail.push('回退模型'); return; }
+      if (d.comps.length < min) { bad++; detail.push(`${d.comps.length}<${min}`); }
+      else detail.push('ok ' + d.comps.length);
+    });
+    return { ok: bad === 0, detail: detail.join(' / ') };
+  },
+  layoutShort() {
+    // 复杂电路里两个节点被排进同一列 → 连成同一根线 → 短路 → 整图回滚。
+    // 正确做法不是回滚了事，而是失败后局部重排（换列/换行）再试。
+    // 这里用一个必然撞车的布局复现：三个支路挤在同一列。
+    const d = M.blank();
+    const r = A.drawPlan(d, {
+      components: [
+        { type: 'btnNo', key: 'SF1', branch: 1 },
+        { type: 'btnNc', key: 'SF2', branch: 1 },
+        { type: 'coil', key: 'QA1', branch: 1 },
+        { type: 'btnNo', key: 'SF3', branch: 1 },
+        { type: 'coil', key: 'QA2', branch: 1 }
+      ],
+      nodes: [
+        { name: 'L', pins: ['SF1#0', 'SF3#0'] },
+        { name: 'A', pins: ['SF1#1', 'SF2#0'] },
+        { name: 'B', pins: ['SF2#1', 'coil:QA1#0'] },
+        { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] },
+        { name: 'C', pins: ['SF3#1', 'coil:QA2#0'] }
+      ]
+    });
+    // 期望：能自动换列后画出来（comps=5 且 level!=error）；现状是回滚成 0
+    return {
+      ok: d.comps.length === 5 && r.level !== 'error',
+      detail: `ok=${r.ok} level=${r.level} 保留元件=${d.comps.length}/5`
+    };
   },
   coilMissing() {    // 反向保护：放宽「主电路免检线圈」之后，真漏画线圈不能跟着被放过。
     // 图里既有线圈又有主元件时，某触点代号找不到线圈仍必须报 error。
