@@ -230,8 +230,10 @@ const CASES = [
      ------------------------------------------------------------ */
   { id: 'G01', group: 'G 真实对话', setup: 'reverse',
     text: '不对，互锁应该串在启动按钮后面',
-    // 用户只要求「调整位置」，自锁必须留着：原图 no=2，改完不能变少
-    expect: { keepKeys: ['QA1', 'QA2'], deltaMax: 1, noMin: 2 } },
+    // 用户只要求「调整位置」，自锁必须留着：原图 no=2，改完不能变少。
+    // explainIfIdle：reverse 模板本来就把互锁串在按钮后面，模型可以「不改」，
+    // 但必须说明「已经是这样」，不能什么都不做也不解释就蒙过去。
+    expect: { keepKeys: ['QA1', 'QA2'], deltaMax: 1, noMin: 2, explainIfIdle: true } },
   { id: 'G02', group: 'G 真实对话', setup: 'reverse',
     text: '错了，改成不带自锁的',
     expect: { keepKeys: ['QA1', 'QA2'], noMax: 0 } },
@@ -598,6 +600,12 @@ function judge(r, c) {
   if (e.mentionNo) {
     const said = /(没有|不存在|未|不在|找不到)/.test(r.reply || '');
     if (!said) fails.push(`该说明「图上没有${e.mentionNo}」，实际没说`);
+  }
+  // explainIfIdle：允许「不改」，但零工具调用时必须解释为什么不用改。
+  // 否则「什么都不做」会变成万能过关法 —— 图没被毁、元件数没变，判据全过。
+  if (e.explainIfIdle && r.calls.length === 0) {
+    const explained = /(已经|本来就是|正是|无需|不用改|不需要改|保持不变|就是)/.test(r.reply || '');
+    if (!explained) fails.push('零工具调用，也没说明「不用改」的原因');
   }
 
   return fails;

@@ -678,7 +678,12 @@
       model: c.model || DEFAULTS.model,
       messages: messages,
       stream: true,
-      stream_options: { include_usage: true }
+      stream_options: { include_usage: true },
+      // 画电路图要的是确定性，不是创造力。默认温度下同一个输入
+      // 有时会加多余元件、有时只说明不动作（实测 G08 三次里一次这样）。
+      // 压到 0.2：保留一点自然语言表达，但元件操作趋于一致。
+      // 用户可以在模型设置里覆盖。
+      temperature: (typeof c.temperature === 'number') ? c.temperature : 0.2
     };
     if (tools) body.tools = tools;
 
