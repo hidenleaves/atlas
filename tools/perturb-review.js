@@ -73,13 +73,14 @@ const BLOCKING = [
   // 第 29 轮修好，升入必修：电路级描述不能降级成元件放置
   ['__CIRCUIT_OVERMATCH__',          { fn: 'circuitOvermatch' }, '要电路不能只放元件'],
   ['__TEMPLATE_OVERMATCH__',         { fn: 'templateOvermatch' }, '模板匹配了但漏掉附加要求'],
+  // 第 30 轮修好，升入必修：同列短路要自动重排，不能整图回滚
+  ['__LAYOUT_SHORT__',               { fn: 'layoutShort' },      '同列短路自动重排，元件不能全丢'],
 ];
 
 const KNOWN = [
   ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件（已裁定放弃）'],
   ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型（安全）'],
   ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name（范围外）'],
-  ['__LAYOUT_SHORT__',               { fn: 'layoutShort' },      'draw_plan 同列短路整图回滚（P0 待修）'],
 ];
 
 const PROBES = {
