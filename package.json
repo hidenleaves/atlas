@@ -4,7 +4,7 @@
   "private": true,
   "description": "PLC 电气图纸图集与可编辑画板（零依赖静态站）",
   "scripts": {
-    "test": "npm run test:rules && node tools/perturb-review.js && node tools/model-eval.js --selftest",
+    "test": "npm run test:rules && npm run prompt:check && node tools/perturb-review.js && node tools/model-eval.js --selftest",
     "test:rules": "node tools/route-test.js && node tools/route-fuzz.js && node tools/api-test.js && node tools/template-test.js && node tools/prompt-test.js && node tools/chat-claim-test.js",
     "prompt": "node tools/export-prompt.js",
     "prompt:check": "node tools/export-prompt.js && git diff --exit-code 提示词.md",
