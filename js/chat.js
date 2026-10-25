@@ -358,7 +358,24 @@
     return null;
   }
 
+  // 带图修改：画布非空时的纠错/调整语气，离线路由不要抢模型的活。
+  // 例：不对，互锁应该串在启动按钮后面 / 错了，改成不带自锁的 /
+  //     改成两个接触器 / 把热继电器挪到下面。
+  // 纯增量、明确删除、空画布不在此列，继续走离线。
+  var EDIT_TONE = /不对|错了|不是.*是|改成|换成|应该是|应该|挪|移|调整|位置|重画一下/;
+  var PURE_ADD = /再加|加上|补一?个|补上|加一?个|放一?个|添加一?个|增加一?个/;
+  var EXPLICIT_REMOVE = /把.*去掉|删掉|删除|去掉|移除|拿掉/;
+
+  function looksLikeEditRequest(text, doc) {
+    if (!doc || !doc.comps || !doc.comps.length) return false;
+    var s = String(text || '');
+    if (PURE_ADD.test(s)) return false;
+    if (EXPLICIT_REMOVE.test(s)) return false;
+    return EDIT_TONE.test(s);
+  }
+
   function interpretV2(text, doc) {
+    if (looksLikeEditRequest(text, doc)) return null;
     if (!global.PLCRoute) return null;
     var r = global.PLCRoute.route(text);
     if (!r || !r.ok) return null;

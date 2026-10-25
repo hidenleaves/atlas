@@ -90,6 +90,8 @@ check('draw_template 有 remote 模板',
   !!(tmpl && tmpl.function.parameters.properties.kind.enum.indexOf('remote') >= 0));
 check('SYS 提到 remote', SYS.indexOf('remote') >= 0);
 check('SYS 有 draw_template 示例', /draw_template\(\{kind/.test(SYS));
+check('SYS 有带图修改规则', SYS.indexOf('【带图修改（画布非空时）】') >= 0);
+check('SYS 要求点名悬空引脚', SYS.indexOf('哪个元件的哪个引脚没接') >= 0);
 
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);

@@ -425,6 +425,45 @@ check('draw_plan：单引脚节点 + 端子', function () {
     JSON.stringify(A.analyze(doc).issues));
 });
 
+/* ---------------- 带图修改：纠错语气交模型 ---------------- */
+
+check('带图修改：四条纠错句交给模型且不改画布', function () {
+  [
+    '不对，互锁应该串在启动按钮后面',
+    '错了，改成不带自锁的',
+    '改成两个接触器',
+    '把热继电器挪到下面'
+  ].forEach(function (text) {
+    const doc = makeReverse(true, true);
+    const before = doc.comps.length;
+    const r = C.interpretV2(text, doc);
+    assert(r === null, text + ' → 应返回 null，实际 ' + JSON.stringify(r));
+    assert(doc.comps.length === before, text + ' → 画布被改动了');
+  });
+});
+
+check('带图修改：纯增量仍走离线', function () {
+  const doc = makeReverse(true, true);
+  const r = C.interpretV2('再加一个运行指示灯', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'lamp'; }), '没加信号灯');
+  assert(doc.comps.length <= 10, '增量不应大改：' + doc.comps.length);
+});
+
+check('带图修改：明确删除仍走离线', function () {
+  const doc = makeReverse(true, true);
+  const r = C.interpretV2('互锁要去掉', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc'; }).length === 0, '互锁未删除');
+});
+
+check('带图修改：空画布不受影响', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('不对，画个正反转', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'coil'; }).length === 2, '空画布仍应能画');
+});
+
 check('draw_plan：同 type:key 可重复，nodes 用 @n 定位', function () {
   const doc = M.blank(760, 500);
   const r = A.drawPlan(doc, {
