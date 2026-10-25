@@ -70,6 +70,9 @@
 | 正反转带主电路 | 内置 | 复用图集 1-12 固定版；明确不要热继电器/熔断器等元件时交给模型 |
 | 星三角 / 开放式描述 | 模型 | 走 `draw_plan` |
 
+同名多触点用 `@n` 区分：`nc:QA3@2#1` 表示第 2 个 QA3 的第 1 号引脚；
+`#` 只表示引脚号，不表示第几个。
+
 ## AI 配置
 
 画板 → 右下角 **AI** → **模型**：
@@ -120,8 +123,8 @@ python tools/qet-import.py   # 重新生成符号库（需要网络）
 
 CI 在 `.github/workflows/test.yml`：push 到 main / PR / 手动触发，Node 22，跑单元测试并检查提示词文档一致性。
 
-当前回归规模：route 85、route-fuzz 128、api 69、template 9、prompt 37、chat-claim 5，
-外加 `tools/perturb-review.js` 34 条必修审查、`model-eval --selftest` 9 项判别力断言。
+当前回归规模：route 85、route-fuzz 128、api 80、template 9、prompt 37、chat-claim 5，合计 344，
+外加 `tools/perturb-review.js` 37 条必修审查、`model-eval --selftest` 9 项判别力断言。
 优化迭代记录见 `docs/optimization-log.md`，变更汇总见 `CHANGELOG.md`。
 
 ## 真实模型评测
@@ -144,6 +147,11 @@ node tools/model-eval.js --live
 node tools/model-eval.js --replay tools/eval-recordings/rec-xxx.json
 ```
 
+`--live` 有失败用例时退出码是 **1**，这是设计行为（方便 CI 判定），不是 harness 崩溃。
+
+评测记录要写**实际路由到的模型名**：实测请求 `deepseek-chat` 会被路由成
+`deepseek-flash`，只记请求名会让基线不可比。
+
 **评测集**共 27 条，分 6 组，每组针对一种失效模式：
 
 | 组 | 测什么 | 例子 |
@@ -158,7 +166,7 @@ node tools/model-eval.js --replay tools/eval-recordings/rec-xxx.json
 每次输出四个关键指标：**通过率**、**散图数**（有元件却一根线都没有）、
 **未用 draw 工具数**（靠 `place_component` 拼图）、**自愈数**（先失败后改对）。
 
-`--selftest` 用三种脚本化假模型断言 harness 有判别力（理想模型 > 先错后改 > 只放不连线），
+`--selftest` 用四种脚本化假模型断言 harness 有判别力（理想模型 > 先错后改 > 只放不连线 > DSML 泄漏），
 所以即使没配 key，CI 也能保证这个工具本身没坏。
 
 结果存 `tools/eval-results/`，录制存 `tools/eval-recordings/`，两者默认不入库

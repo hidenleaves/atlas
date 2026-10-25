@@ -127,6 +127,21 @@
   var NEED_COIL = { no: 1, nc: 1, contactor3: 1 };
   var MAIN = { motor: 1, contactor3: 1, thermal: 1, fuse3: 1, breaker: 1, switch3: 1 };
 
+  // 非电磁驱动元件：本身没有线圈，靠双金属片、机械机构或感应动作。
+  // 它们的同名辅助触点（no / nc）不需要再配一个线圈。
+  // 注意不要把 contactor3 放进来：三极主触点仍然由接触器线圈驱动。
+  var NON_MAGNETIC_DRIVER = {
+    thermal: 1, breaker: 1, limit: 1, prox: 1,
+    btnStop: 1, btnNo: 1, btnNc: 1, ct: 1, sw: 1, switch3: 1
+  };
+
+  // 主电路 / 控制图分开画时，热继电器或电流互感器的本体可能不在本图。
+  // FR / BB 是热继电器，TA 是电流互感器；只对辅助触点兜底，
+  // contactor3 仍必须有自己的线圈。
+  function isNonMagneticKey(key) {
+    return /^(FR|BB|TA)/i.test(String(key || ''));
+  }
+
   // "可能导通"的路径分析里，开关/触点/保护件算导体。
   // 只判断"有没有可能形成回路"，不判断开关当前状态。
   var CONDUCTIVE = {
@@ -275,12 +290,17 @@
     });
 
     /* --- 5. 代号对不上（触点有、线圈没有，或反过来） --- */
-    var coils = {}, contacts = {};
+    var coils = {}, contacts = {}, contactKinds = {}, nonMagnetic = {};
     comps.forEach(function (c) {
       var k = (c.key || '').trim();
       if (!k) return;
       if (COILISH[c.type]) coils[k] = (coils[k] || 0) + 1;
-      if (NEED_COIL[c.type] && !isOperator(k)) contacts[k] = (contacts[k] || 0) + 1;
+      if (NON_MAGNETIC_DRIVER[c.type]) nonMagnetic[k] = 1;
+      if (NEED_COIL[c.type] && !isOperator(k)) {
+        contacts[k] = (contacts[k] || 0) + 1;
+        contactKinds[k] = contactKinds[k] || {};
+        contactKinds[k][c.type] = 1;
+      }
     });
     // 先判断这是不是“主电路单独成图”：图上有电机/主触点/主电路保护，
     // 但整张图一个线圈都没有。星三角、正反转主电路都是这么画的，
@@ -300,7 +320,13 @@
         '这是一张主电路图，接触器线圈不在本图（在控制回路那张）', null);
     } else {
       Object.keys(contacts).forEach(function (k) {
-        if (!coils[k]) {
+        if (coils[k]) return;
+        // 辅助触点由非电磁机构驱动（热继电器 / 行程开关 / 接近开关 / 急停 / CT 等），
+        // 不需要同名线圈；三极主触点 contactor3 不享受这个例外。
+        var auxOnly = !contactKinds[k].contactor3;
+        var drivenByNonMagnetic = auxOnly &&
+          (nonMagnetic[k] || isNonMagneticKey(k));
+        if (!drivenByNonMagnetic) {
           push('error', 'keyless',
             '触点是 ' + k + '，但图上没有 ' + k + ' 的线圈，按下不会动作',
             null);

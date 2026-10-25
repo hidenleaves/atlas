@@ -927,6 +927,98 @@ check('advisor：控制回路单独成图，触点缺线圈仍报 error', functi
   }), JSON.stringify(an.issues));
 });
 
+/* ---------------- advisor：非电磁驱动元件的触点 ---------------- */
+
+check('advisor：热继电器本体 + 过载触点不需要同名线圈（thermal + nc/no）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'btnNo', { key: 'SF1' });
+  A.place(doc, 'thermal', { key: 'FR1' });
+  A.place(doc, 'nc', { key: 'FR1' });
+  A.place(doc, 'no', { key: 'FR1' });
+  A.place(doc, 'coil', { key: 'QA1', near: 'SF1' });
+  A.wireNodes(doc, [
+    { name: 'L', pins: ['SF1#0'] },
+    { name: 'A', pins: ['SF1#1', 'nc:FR1#0'] },
+    { name: 'B', pins: ['nc:FR1#1', 'coil:QA1#0'] },
+    { name: 'N', pins: ['coil:QA1#1'] }
+  ]);
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'keyless'; }),
+    JSON.stringify(an.issues));
+});
+
+check('advisor：热继电器代号 FR/BB 在另一张图时也不误报', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'nc', { key: 'FR1' });
+  A.place(doc, 'no', { key: 'BB2' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'keyless'; }),
+    JSON.stringify(an.issues));
+});
+
+check('advisor：行程开关触点不需要同名线圈（limit + nc，非 SQ 代号）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'limit', { key: 'LS1' });
+  A.place(doc, 'nc', { key: 'LS1' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'keyless'; }),
+    JSON.stringify(an.issues));
+});
+
+check('advisor：接近开关触点不需要同名线圈（prox + nc，非 SQ 代号）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'prox', { key: 'PR1' });
+  A.place(doc, 'nc', { key: 'PR1' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'keyless'; }),
+    JSON.stringify(an.issues));
+});
+
+check('advisor：急停常闭触点不需要同名线圈（btnStop + nc，非 SB 代号）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'btnStop', { key: 'ES1' });
+  A.place(doc, 'nc', { key: 'ES1' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'keyless'; }),
+    JSON.stringify(an.issues));
+});
+
+check('advisor：电流互感器二次侧触点不需要同名线圈（ct + nc）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'ct', { key: 'TA1' });
+  A.place(doc, 'nc', { key: 'TA1' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.code === 'keyless'; }),
+    JSON.stringify(an.issues));
+});
+
+check('advisor：无关的非电磁驱动不会放过真缺线圈（nc:QA9）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'thermal', { key: 'FR1' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  A.place(doc, 'nc', { key: 'QA9' });
+  const an = A.analyze(doc);
+  assert(an.issues.some(function (i) {
+    return i.code === 'keyless' && /QA9/.test(i.msg);
+  }), JSON.stringify(an.issues));
+});
+
+check('advisor：contactor3 仍按电磁接触器要求线圈（同代号有 thermal 也不例外）', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'thermal', { key: 'FR1' });
+  A.place(doc, 'contactor3', { key: 'FR1' });
+  A.place(doc, 'coil', { key: 'QA1' });
+  const an = A.analyze(doc);
+  assert(an.issues.some(function (i) {
+    return i.code === 'keyless' && /FR1/.test(i.msg);
+  }), JSON.stringify(an.issues));
+});
+
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
 console.log('');
