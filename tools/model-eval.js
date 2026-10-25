@@ -115,7 +115,15 @@ if (MODE === 'selftest') {
       .sort();
     const pick = fresh.length ? fresh[fresh.length - 1]
       : fs.readdirSync(outDir).filter(f => f.includes('fake-' + policy)).sort().pop();
-    return JSON.parse(fs.readFileSync(path.join(outDir, pick), 'utf8')).summary;
+    const d = JSON.parse(fs.readFileSync(path.join(outDir, pick), 'utf8'));
+    // 只统计「空画布起步」的用例（没有 before 就是没走 setup）。
+    // G 组先画了一张图再说话，画布本来非空，不能算进去。
+    const blank = d.results.filter(r => !r.before);
+    return Object.assign({}, d.summary, {
+      blankTotal: blank.length,
+      blankScatter: blank.filter(r => r.scatter !== undefined ? r.scatter : (r.comps >= 2 && r.wires === 0)).length,
+      blankNoDraw: blank.filter(r => r.comps > 0 && r.drawCalls === 0).length
+    });
   };
 
   console.log('=== harness 自检：三种假模型判别力 ===\n');
@@ -135,12 +143,14 @@ if (MODE === 'selftest') {
     String(x.recovered).padStart(6)
   ));
 
+  // G 组用例有 setup（先画一张图再说话），画布本来就不是空的，
+  // 「散图」「没用 draw 工具」这两条断言只对空画布起步的用例成立。
   const checks = [
     ['good 通过率 > sloppy', g.pass > s.pass],
     ['sloppy 通过率 > lazy', s.pass > l.pass],
     ['good 无散图', g.scatter === 0],
-    ['lazy 全部是散图', l.scatter === l.total],
-    ['lazy 完全没用 draw 工具', l.noDrawCall === l.total],
+    ['lazy 空画布用例全是散图', l.blankScatter === l.blankTotal],
+    ['lazy 空画布用例完全没用 draw 工具', l.blankNoDraw === l.blankTotal],
     ['sloppy 识别出自愈', s.recovered > 0],
     ['good 全部走 draw 工具', g.noDrawCall === 0],
     // DSML 故障注入：模型把工具调用写成文本时必须能救回来，
@@ -210,6 +220,41 @@ const CASES = [
   { id: 'F02', group: 'F 边界', text: '今天天气怎么样', expect: { noDraw: true, engine: 'either' } },
   { id: 'F03', group: 'F 边界', text: '把这台设备的 PLC 程序写出来', expect: { noDraw: true, engine: 'either' } },
   { id: 'F04', group: 'F 边界', text: '画一个能自动检测故障并报警的智能系统', expect: { allowEmpty: true, engine: 'either' } },
+
+  /* ---- G 组：真实对话 —— 带图上下文说「修改」的话 ----
+     A~F 全是「空画布上说一句」，可真实使用几乎都是「图上已经有了，我在改」。
+     这一组先 setup 画一张 8 元件正反转，再让用户纠错/微调。
+     判据核心：不能比原图少元件（除非用户明确要删），也不能多出用户没要的元件。
+     expect.keepKeys  —— 这些代号必须还在（说明原图没被覆盖）
+     expect.deltaMax  —— 元件数相对原图最多增减多少
+     ------------------------------------------------------------ */
+  { id: 'G01', group: 'G 真实对话', setup: 'reverse',
+    text: '不对，互锁应该串在启动按钮后面',
+    // 用户只要求「调整位置」，自锁必须留着：原图 no=2，改完不能变少
+    expect: { keepKeys: ['QA1', 'QA2'], deltaMax: 1, noMin: 2 } },
+  { id: 'G02', group: 'G 真实对话', setup: 'reverse',
+    text: '错了，改成不带自锁的',
+    expect: { keepKeys: ['QA1', 'QA2'], noMax: 0 } },
+  { id: 'G03', group: 'G 真实对话', setup: 'reverse',
+    text: '改成两个接触器',
+    // 原图本来就是 QA1/QA2 两个，不该再增加任何元件
+    expect: { keepKeys: ['QA1', 'QA2'], deltaMax: 0 } },
+  { id: 'G04', group: 'G 真实对话', setup: 'reverse',
+    text: '把自锁去掉',
+    expect: { keepKeys: ['QA1', 'QA2'], noMax: 0 } },
+  { id: 'G05', group: 'G 真实对话', setup: 'reverse',
+    text: '互锁要去掉',
+    expect: { keepKeys: ['QA1', 'QA2'], ncMax: 0 } },
+  { id: 'G06', group: 'G 真实对话', setup: 'reverse',
+    text: '再加一个运行指示灯',
+    expect: { keepKeys: ['QA1', 'QA2'], mustTypes: ['lamp'], deltaMax: 2 } },
+  { id: 'G07', group: 'G 真实对话', setup: 'selflock',
+    text: '把停止按钮换成急停',
+    expect: { keepKeys: ['QA1'], deltaMax: 2 } },
+  { id: 'G08', group: 'G 真实对话', setup: 'reverse',
+    text: '把热继电器挪到下面',
+    // 图上根本没有热继电器 —— 正确行为是保持原样并说明，不是凭空加一个
+    expect: { keepKeys: ['QA1', 'QA2'], deltaMax: 0, mentionNo: '热继电器' } },
 ];
 
 /* ============================================================
@@ -434,6 +479,21 @@ function runCase(c) {
   // 每条用例都重置会让大家拿到同一批数据。live/fake 不需要这个游标。
   if (MODE !== 'replay') RECORD_IDX = 0;
 
+  // G 组等用例需要「图上已经有东西」的上下文：先按 setup 建图，再说话。
+  // 这测的才是真实用法 —— 用户在已有图上改，而不是每次从空白开始。
+  let before = null;
+  if (c.setup) {
+    if (c.setup === 'reverse') A.drawTemplate(doc, { kind: 'reverse' });
+    else if (c.setup === 'selflock') A.drawTemplate(doc, { kind: 'selflock' });
+    else if (c.setup === 'star') A.drawTemplate(doc, { kind: 'star' });
+    before = {
+      comps: doc.comps.length,
+      keys: doc.comps.map(x => x.key).filter(Boolean),
+      no: doc.comps.filter(x => x.type === 'no').length,
+      nc: doc.comps.filter(x => x.type === 'nc').length
+    };
+  }
+
   const t0 = Date.now();
   // DBG 是模块内累积的数组，且超过 160 条会被截断。
   // 用长度快照会在截断后拿到空数组，所以每次用例前显式清空。
@@ -473,7 +533,10 @@ function runCase(c) {
       drawCalls: calls.filter(x => x.name === 'draw_plan' || x.name === 'draw_template').length,
       placeCalls: calls.filter(x => x.name === 'place_component').length,
       failCalls: calls.filter(x => !x.ok).length,
-      changed: !!(res && res.changed)
+      changed: !!(res && res.changed),
+      before,
+      keys: doc.comps.map(x => x.key).filter(Boolean),
+      types: doc.comps.map(x => x.type)
     };
   });
 }
@@ -508,6 +571,34 @@ function judge(r, c) {
   }
   // 散图检测：有元件但几乎没线
   if (r.comps >= 2 && r.wires === 0) fails.push('有元件但一根线都没有（散图）');
+
+  /* ---- G 组：带图上下文的判据 ---- */
+  // keepKeys：原图的关键代号必须还在，否则说明离线/模型把用户已有的图覆盖了
+  if (e.keepKeys) {
+    const lost = e.keepKeys.filter(k => (r.keys || []).indexOf(k) < 0);
+    if (lost.length) fails.push(`原图代号被覆盖：${lost.join(',')}`);
+  }
+  // deltaMax：相对原图的元件数变化上限（改图不该大改）
+  if (e.deltaMax != null && r.before) {
+    const d = Math.abs(r.comps - r.before.comps);
+    if (d > e.deltaMax) {
+      fails.push(`元件数 ${r.before.comps}→${r.comps}（变化 ${d} 超出 ±${e.deltaMax}）`);
+    }
+  }
+  // mustTypes：用户点名要的元件必须出现
+  if (e.mustTypes) {
+    const miss = e.mustTypes.filter(t => (r.types || []).indexOf(t) < 0);
+    if (miss.length) fails.push(`缺 ${miss.join(',')}`);
+  }
+  // noMin：原图有自锁，用户只让调位置，自锁不能丢
+  if (e.noMin != null && r.no < e.noMin) {
+    fails.push(`常开触点 ${r.no} < ${e.noMin}（用户没要求删自锁）`);
+  }
+  // mentionNo：用户要动一个图上没有的东西时，正确做法是说明「没有」
+  if (e.mentionNo) {
+    const said = /(没有|不存在|未|不在|找不到)/.test(r.reply || '');
+    if (!said) fails.push(`该说明「图上没有${e.mentionNo}」，实际没说`);
+  }
 
   return fails;
 }
