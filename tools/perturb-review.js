@@ -72,6 +72,8 @@ const KNOWN = [
   ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件（已裁定放弃）'],
   ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型（安全）'],
   ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name（范围外）'],
+  ['__MAIN_ONLY__',                  { fn: 'mainOnly' },         '只画主电路被线圈配对拦死（P0 待修）'],
+  ['__THERMAL_CONTACT__',            { fn: 'thermalContact' },   '热继电器触点无线圈误报（同类）'],
 ];
 
 const PROBES = {
@@ -175,6 +177,45 @@ const PROBES = {
     const terms = d.marks.filter(m => m.kind === 'term');
     const named = terms.filter(x => x.name).length;
     return { ok: terms.length > 0 && named === terms.length, detail: `${terms.length} 个端子，带 name ${named}` };
+  },
+  mainOnly() {
+    // 只画主电路：接触器主触点在图，线圈在控制回路、不在同一张图上。
+    // 这是星三角/正反转主电路的常态。advisor 若把"图上没有同代号线圈"
+    // 当成 error，这个合理需求就永远画不出来。
+    // 注意元件必须分列，否则会先被同列短路挡住，测不到线圈这条规则。
+    const d = M.blank();
+    const r = A.drawPlan(d, {
+      components: [
+        { type: 'contactor3', key: 'QA1', branch: 1 },
+        { type: 'motor', key: 'M1', branch: 3 }
+      ],
+      nodes: [
+        { name: 'L1', pins: ['contactor3:QA1#0'] },
+        { name: 'M', pins: ['contactor3:QA1#1', 'motor:M1#0'] }
+      ]
+    });
+    const errs = (r.issues || []).filter(x => x.level === 'error');
+    return {
+      ok: r.ok && r.level !== 'error' && d.comps.length === 2,
+      detail: `ok=${r.ok} level=${r.level} comps=${d.comps.length} ` +
+        (errs.length ? 'error: ' + errs[0].msg.slice(0, 34) : String(r.error || '').slice(0, 34))
+    };
+  },
+  thermalContact() {
+    // 热继电器触点不需要同名线圈（它由双金属片驱动，不是电磁铁）
+    const d = M.blank();
+    A.place(d, 'btnNo', { key: 'SF1' });
+    A.place(d, 'thermal', { key: 'FR1' });
+    A.place(d, 'coil', { key: 'QA1', near: 'SF1' });
+    A.wireNodes(d, [
+      { name: 'L', pins: ['SF1#0'] },
+      { name: 'A', pins: ['SF1#1', 'thermal:FR1#0'] },
+      { name: 'B', pins: ['thermal:FR1#1', 'coil:QA1#0'] },
+      { name: 'N', pins: ['coil:QA1#1'] }
+    ]);
+    const an = A.analyze(d);
+    const errs = an.issues.filter(x => x.level === 'error');
+    return { ok: errs.length === 0, detail: `level=${an.level} error=${errs.length}` };
   }
 };
 
