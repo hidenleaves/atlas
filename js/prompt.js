@@ -26,6 +26,8 @@
 其他电路 → draw_plan，一次出图。
 不要用 place_component 一个个放——那样要十几轮，来不及连线，图会散着。
 只有“在现有图上加一个元件”“删掉某个元件”这种小改动，才用 place_component / remove。
+同一句话里还要指示灯 / 电铃 / 报警等附加元件时，把它们一起放进这次 draw_plan 的 components；
+draw_plan 成功后本轮就收尾，留到下一轮再加会被跳过。
 
 【draw_template 怎么用】
 kind：jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转 / remote 两地控制。

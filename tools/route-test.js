@@ -162,7 +162,35 @@ const CASES = [
     attrs: { main: true, interlock: true }
   } },
   { text: '画一个两地控制', expect: { op: 'draw', type: 'remote' } },
-  { text: '多地控制', expect: { op: 'draw', type: 'remote' } }
+  { text: '多地控制', expect: { op: 'draw', type: 'remote' } },
+
+  /* ---- 第 29 轮 P0：电路级描述不能降级成元件放置 ----
+     整句只产出 place 时交给模型；纯增量命令和带模板主体的句子必须
+     继续离线命中，不能被这条规则误伤。 */
+  { text: '给我画一个电机正转，带启动停止，加个运行指示灯', expect: { ok: false } },
+  { text: '画一个带急停按钮的控制回路，急停要能切断整个回路', expect: { ok: false } },
+  { text: '帮我画一个电机过载保护回路，热继电器动作后要能报警', expect: { ok: false } },
+  { text: '要一个能报警的过载保护', expect: { ok: false } },
+  { text: '给我个两地都能操作的回路', expect: { ok: false } },
+  { text: '画个带指示灯的启停电路', expect: { ok: false } },
+  { text: '做个停止优先的控制回路', expect: { ok: false } },
+  { text: '画个电机回路', expect: { ok: false } },
+  { text: '画个急停控制回路', expect: { ok: false } },
+  { text: '画个热继电器保护回路', expect: { ok: false } },
+  { text: '清空，画个电机回路', expect: { ok: false } },
+
+  // 不能误伤：带模板主体、纯增量、纯元件
+  { text: '画个带热继电器的正反转回路', expect: {
+    op: 'draw', type: 'reverse', attrs: { thermal: true }
+  } },
+  { text: '画一个起保停，然后加个运行指示灯', expect: {
+    op: 'place', component: 'lamp', steps: ['draw', 'place']
+  } },
+  { text: '画个电机', expect: { op: 'place', component: 'motor' } },
+  { text: '画个指示灯', expect: { op: 'place', component: 'lamp' } },
+  { text: '清空，放一个熔断器', expect: {
+    op: 'place', component: 'fuse', steps: ['clear', 'place']
+  } }
 ];
 
 function check(r, exp) {

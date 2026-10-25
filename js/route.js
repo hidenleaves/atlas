@@ -88,6 +88,15 @@
     ['信号灯', 'lamp'], ['指示灯', 'lamp'], ['电铃', 'bell'], ['主触点', 'contactor3']
   ].sort(function (a, b) { return b[0].length - a[0].length; });
 
+  // 电路级名词：出现这些词时，用户描述的是“一张电路”，不是“一个元件”。
+  // 如果整句只解析出 place、没有 draw/add，说明规则把修饰语当成了宾语。
+  // 例：「给我画一个电机正转，带启动停止，加个运行指示灯」——
+  // 逗号切开后每段只扫到一个元件，但用户要的是完整控制回路。
+  var CIRCUIT_WORDS = [
+    '电路', '回路', '控制', '保护', '启动', '停止', '报警', '启停',
+    '自锁', '互锁', '正反转'
+  ];
+
   var CONNECTORS = ['然后', '接着', '同时', '并且', '另外', '再', '并'];
 
   var DEFAULT_ATTRS = {
@@ -618,6 +627,32 @@
     if (!meaningful.length) {
       if (steps.length) return finalize(steps[0], steps, 0.9);
       return { ok: false, reason: '没有识别出可执行的操作', confidence: 0, steps: [] };
+    }
+
+    // 第 29 轮 P0：电路级描述不能降级成元件放置。
+    // 典型失效：「给我画一个电机正转，带启动停止，加个运行指示灯」
+    // 被逗号切成三段后，规则只按元件名词产出 motor + lamp，启动/停止
+    // 整段丢掉；画布上有东西，用户会以为画好了，比画错更危险。
+    //
+    // 判据放在整句而不是子句：这三个例子都是逗号分隔的多子句，
+    // 单看第一段「给我画一个电机正转」并没有电路级名词，必须看全句。
+    // 只拦“纯 place（可带 clear）”且同时出现电路级名词和元件名词的情况：
+    //   - 「放一个熔断器」没有电路级名词 → 不受影响；
+    //   - 「加个自锁」不是 place → 不受影响；
+    //   - 「画个正反转带主电路」有 draw 步骤 → 不受影响；
+    //   - 「画一个起保停，然后加个运行指示灯」有 draw 步骤 → 不受影响。
+    // 这类句子交给模型画完整回路，规则不再硬猜。
+    var placeOnly = meaningful.every(function (s) {
+      return s.op === 'place' || s.op === 'clear';
+    });
+    var hasCircuitWord = CIRCUIT_WORDS.some(function (w) { return norm.indexOf(w) >= 0; });
+    if (placeOnly && hasCircuitWord && scan(norm, COMPONENT_WORDS).length) {
+      return {
+        ok: false,
+        reason: '电路级描述，规则只匹配到元件，交给模型画完整回路',
+        confidence: 0.3,
+        steps: steps
+      };
     }
 
     var last = meaningful[meaningful.length - 1];
