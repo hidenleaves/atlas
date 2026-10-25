@@ -499,7 +499,11 @@ async function main() {
       console.error('✗ --replay 需要一个录制文件');
       process.exit(2);
     }
-    REPLAY_DATA = JSON.parse(fs.readFileSync(REPLAY_FILE, 'utf8'));
+    // 支持 .gz：归档的基线录制压过，直接喂路径即可
+    const raw = /\.gz$/.test(REPLAY_FILE)
+      ? require('zlib').gunzipSync(fs.readFileSync(REPLAY_FILE)).toString('utf8')
+      : fs.readFileSync(REPLAY_FILE, 'utf8');
+    REPLAY_DATA = JSON.parse(raw);
   }
   if (MODE === 'live') {
     // 写进 localStorage，让 callModel 的 cfg() 读到
