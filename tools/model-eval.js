@@ -396,6 +396,10 @@ global.fetch = function (url, opts) {
         .filter(d => d && d !== '[DONE]')
         .map(d => { try { return JSON.parse(d); } catch (e) { return null; } })
         .filter(Boolean);
+      // 记下实际路由到的模型（chunk 里带 model 字段）
+      chunks.forEach(c => {
+        if (c.model && RECORD.routedModels.indexOf(c.model) < 0) RECORD.routedModels.push(c.model);
+      });
       RECORD.steps.push({ ms: Date.now() - started, chunks });
       return sseResponse(chunks);
     });
@@ -512,7 +516,16 @@ async function main() {
       model: arg('model') || 'deepseek-chat',
       apiKey: API_KEY
     });
-    RECORD = { startedAt: new Date().toISOString(), model: arg('model') || 'deepseek-chat', steps: [] };
+    RECORD = {
+      startedAt: new Date().toISOString(),
+      // 请求名：你填的那个
+      requestedModel: arg('model') || 'deepseek-chat',
+      // 实际路由到的模型：每个 chunk 里带 model 字段，末尾统计后回填。
+      // DeepSeek 会把 deepseek-chat 路由成 deepseek-flash，只记请求名会让基线不可比。
+      model: arg('model') || 'deepseek-chat',
+      routedModels: [],
+      steps: []
+    };
   }
   if (MODE === 'fake') {
     // callModel 开头会检查 cfg()，没配置就直接返回 null。
@@ -618,9 +631,12 @@ async function main() {
   if (MODE === 'live' && RECORD) {
     const recDir = path.join(__dirname, 'eval-recordings');
     fs.mkdirSync(recDir, { recursive: true });
+    // 用实际路由到的模型覆盖 model 字段（记不到就保留请求名）
+    if (RECORD.routedModels.length) RECORD.model = RECORD.routedModels.join(',');
     const recFile = path.join(recDir, `rec-${stamp}.json`);
     fs.writeFileSync(recFile, JSON.stringify(RECORD, null, 2));
     console.log('录制：' + recFile + `（${RECORD.steps.length} 次请求）`);
+    console.log(`模型：请求 ${RECORD.requestedModel}，实际路由 ${RECORD.model}`);
     console.log('下次离线复现：node tools/model-eval.js --replay ' + recFile);
   }
 

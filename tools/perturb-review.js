@@ -290,7 +290,8 @@ console.log(`\n必修：通过 ${b.pass} / 失败 ${b.fail} / 回退模型 ${b.m
 
 console.log('\n=== KNOWN（已知边角，不阻塞）===');
 const k = run(KNOWN);
-console.log(`\n已知：通过 ${k.pass} / 待修 ${k.fail}  共 ${KNOWN.length}`);
+// 回退模型的那条既不算通过也不算待修，必须单独报，否则 0+2≠3 看着像算错了
+console.log(`\n已知：通过 ${k.pass} / 待修 ${k.fail} / 回退模型 ${k.model}  共 ${KNOWN.length}`);
 
 console.log('\n' + '='.repeat(56));
 if (b.fail === 0) {
