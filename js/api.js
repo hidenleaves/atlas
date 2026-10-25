@@ -31,6 +31,112 @@
     return [[tx, fy], [tx, ty]];
   }
 
+  /* 正交走线（避开引脚）。
+     固定“先横后竖”会有一个隐蔽问题：目标元件的另一个引脚如果正好在
+     拐角到终点的这段线上，线会从它身上穿过去，网表就把两个节点并成
+     一根线判短路（B02 / B04 里 SF1#1 连 no:QA1#1 就是这种）。
+     这里备几条候选路径，按“不穿任何引脚”优先选第一条。 */
+  function segHitsPin(a, b, p, skip) {
+    if (skip[p.id + '#' + p.i]) return false;
+    var lo, hi;
+    if (Math.abs(a[1] - b[1]) < 0.5) {
+      if (Math.abs(p.y - a[1]) > 0.5) return false;
+      lo = Math.min(a[0], b[0]) - 0.5; hi = Math.max(a[0], b[0]) + 0.5;
+      return p.x >= lo && p.x <= hi;
+    }
+    if (Math.abs(a[0] - b[0]) < 0.5) {
+      if (Math.abs(p.x - a[0]) > 0.5) return false;
+      lo = Math.min(a[1], b[1]) - 0.5; hi = Math.max(a[1], b[1]) + 0.5;
+      return p.y >= lo && p.y <= hi;
+    }
+    return false;
+  }
+
+  // 两段正交线共线且重叠（重叠会把两个网并成一个）
+  function segOverlap(a, b, c, d) {
+    var ah = Math.abs(a[1] - b[1]) < 0.5;
+    var ch = Math.abs(c[1] - d[1]) < 0.5;
+    if (ah && ch) {
+      if (Math.abs(a[1] - c[1]) > 0.5) return false;
+      var lo = Math.max(Math.min(a[0], b[0]), Math.min(c[0], d[0]));
+      var hi = Math.min(Math.max(a[0], b[0]), Math.max(c[0], d[0]));
+      return hi - lo > 0.5;
+    }
+    if (!ah && !ch) {
+      if (Math.abs(a[0] - c[0]) > 0.5) return false;
+      var lo2 = Math.max(Math.min(a[1], b[1]), Math.min(c[1], d[1]));
+      var hi2 = Math.min(Math.max(a[1], b[1]), Math.max(c[1], d[1]));
+      return hi2 - lo2 > 0.5;
+    }
+    return false;
+  }
+
+  function routePts(doc, A, B) {
+    var fx = snap(A.pt[0]), fy = snap(A.pt[1]);
+    var tx = snap(B.pt[0]), ty = snap(B.pt[1]);
+
+    var skip = {};
+    skip[A.comp.id + '#' + A.i] = 1;
+    skip[B.comp.id + '#' + B.i] = 1;
+    var pins = M.pinsOf(doc);
+    function clear(pts) {
+      for (var i = 0; i + 1 < pts.length; i++) {
+        for (var k = 0; k < pins.length; k++) {
+          if (segHitsPin(pts[i], pts[i + 1], pins[k], skip)) return false;
+        }
+        for (var w = 0; w < doc.wires.length; w++) {
+          var ws = (doc.wires[w] && doc.wires[w].pts) || [];
+          for (var j = 0; j + 1 < ws.length; j++) {
+            if (segOverlap(pts[i], pts[i + 1], ws[j], ws[j + 1])) return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    var direct = [[tx, ty]];
+    var sameX = Math.abs(fx - tx) < 0.5;
+    var sameY = Math.abs(fy - ty) < 0.5;
+    // 起点 A 不在候选数组里，检查时要补上，否则第一段永远查不到
+    function ok(path) { return clear([[fx, fy]].concat(path)); }
+    if (sameX || sameY) {
+      if (ok(direct)) return direct;
+      var detours = [];
+      if (sameX) {
+        // 同一列：直线被别的引脚挡住，就从左右绕过去
+        [30, -30, 60, -60].forEach(function (dx) {
+          detours.push([[fx + dx, fy], [fx + dx, ty], [tx, ty]]);
+        });
+      } else {
+        // 同一行：从上下绕
+        [30, -30, 60, -60].forEach(function (dy) {
+          detours.push([[fx, fy + dy], [tx, fy + dy], [tx, ty]]);
+        });
+      }
+      for (var di = 0; di < detours.length; di++) {
+        if (ok(detours[di])) return detours[di];
+      }
+      return direct;
+    }
+
+    var cands = [
+      [[tx, fy], [tx, ty]],                 // 先横后竖（原行为）
+      [[fx, ty], [tx, ty]]                  // 先竖后横
+    ];
+    var minY = Math.min(fy, ty), maxY = Math.max(fy, ty);
+    var minX = Math.min(fx, tx), maxX = Math.max(fx, tx);
+    [minY - 30, maxY + 30].forEach(function (my) {
+      cands.push([[fx, my], [tx, my], [tx, ty]]);     // 从上下绕
+    });
+    [minX - 30, maxX + 30].forEach(function (mx) {
+      cands.push([[mx, fy], [mx, ty], [tx, ty]]);     // 从左右绕
+    });
+    for (var i = 0; i < cands.length; i++) {
+      if (ok(cands[i])) return cands[i];
+    }
+    return cands[0];
+  }
+
   // 拆出 "@n" 序号（从 1 开始），用于同一个 type:key 的第 n 个
   function splitOcc(ref) {
     var s = String(ref == null ? '' : ref).trim();
@@ -352,7 +458,7 @@
       return { ok: false, error: '这两个点已经连通了，不用再连' };
     }
 
-    var pts = [[A.pt[0], A.pt[1]]].concat(ortho(A.pt, B.pt));
+    var pts = [[A.pt[0], A.pt[1]]].concat(routePts(doc, A, B));
     var w = { id: M.uid('w'), pts: pts, a: { c: A.comp.id, i: A.i }, b: { c: B.comp.id, i: B.i } };
     M.resolveWire(doc, w);
     doc.wires.push(w);
@@ -759,6 +865,10 @@
     doc.h = s.h;
   }
 
+  // 对话层做“只回滚一次追加”的快照
+  api.snapshot = function (doc) { return M.clone(doc); };
+  api.restore = function (doc, snap) { restoreDoc(doc, snap); };
+
   // align / near 引用的元件必须先放；成环就报错，不硬摆。
   // useDoc=false 时（clear:true）不能把即将被清掉的旧元件当成可引用目标。
   function orderForRefs(comps, doc, useDoc) {
@@ -806,7 +916,7 @@
     return c ? { c: c, i: idx } : null;
   }
 
-  function relayoutComponents(comps, nodes, attempt, doc, allowBus) {
+  function relayoutComponents(comps, nodes, attempt, doc) {
     var list = comps.map(function (c, i) {
       var o = {};
       for (var k in c) o[k] = c[k];
@@ -815,10 +925,9 @@
       return o;
     });
 
-    if (attempt === 2 && allowBus) {
-      // 兜底：两行网格 + 每个节点一条独立母线（配合 wireNodesBus）。
-      // 元件多时一列放不下，单列重排会把后几个元件顶到画布外；
-      // 两行错半列摆放，竖直引线能从元件之间的缝里穿过去。
+    if (attempt === 2) {
+      // 第二次换强策略：两行错半列摆放，拉开行距，让竖直引线从元件缝里穿。
+      // 不再沿用第一次的“同列串联”，否则模型给的具体坐标一挤，重排也还是同一坨。
       var n = list.length;
       var row1 = Math.ceil(n / 2);
       var base = Math.max(30, Math.round(doc.w * 0.08 / 10) * 10);
@@ -838,7 +947,11 @@
       });
       var unit = Math.max(90, maxW + 30);
       var pitch = row1 > 1 ? Math.min(unit, Math.floor(usable / (row1 - 1) / 10) * 10) : unit;
-      if (n > 1 && pitch < 72) return null;
+      if (n > 1 && pitch < 72) {
+        // 元件太多，两行网格塞不下：退回按列分配，至少不是原来那套同列串联
+        list.forEach(function (c, i) { c.branch = Math.min(6, i + 1); });
+        return list;
+      }
       var y1 = Math.round(doc.h * 0.48 / 10) * 10;
       var y2 = Math.round(doc.h * 0.80 / 10) * 10;
       list.forEach(function (c, i) {
@@ -851,12 +964,6 @@
           c.y = y2;
         }
       });
-      return list;
-    }
-
-    if (attempt === 2) {
-      // 在已有图上重排时不动用户原来的坐标，只换列。
-      list.forEach(function (c, i) { c.branch = Math.min(6, i + 1); });
       return list;
     }
 
@@ -910,6 +1017,53 @@
         errs.push('端子 ' + t.name + ' 指向的节点 ' + t.node + ' 不存在');
       }
     });
+
+    // 同一个引脚被写进两个节点 = 电气上已经短在一起，布局怎么排都救不了。
+    // 提前拦下并点名，比让重排跑两遍再报“节点 X 与 Y 短路”有用。
+    var planTypes = {};
+    comps.forEach(function (c) {
+      if (!c || !c.type || c.key == null) return;
+      (planTypes[c.key] = planTypes[c.key] || {})[c.type] = 1;
+    });
+    function pinKey(ref) {
+      var s = String(ref == null ? '' : ref).trim();
+      var tm = s.match(/^([A-Za-z][A-Za-z0-9]*):(.+)$/);
+      var type = null;
+      if (tm) { type = tm[1]; s = tm[2]; }
+      var pm = s.match(/^(.+?)(?:@(\d+))?#(\d+)$/);
+      if (!pm) return (type ? type + ':' : '') + s;
+      var key = pm[1], occ = pm[2] || '1', pin = pm[3];
+      if (!type) {
+        var ts = planTypes[key] ? Object.keys(planTypes[key]) : [];
+        if (ts.length === 1) type = ts[0];
+      }
+      return (type ? type + ':' : '') + key + '@' + occ + '#' + pin;
+    }
+    var pinOwner = {}, dupPin = null;
+    nodes.forEach(function (n) {
+      if (!n || !Array.isArray(n.pins)) return;
+      var nm = String(n.name || '');
+      n.pins.forEach(function (ref) {
+        var k = pinKey(ref);
+        if (!k) return;
+        if (pinOwner[k] && pinOwner[k] !== nm) {
+          if (!dupPin) dupPin = { a: pinOwner[k], b: nm, pin: String(ref).trim() };
+        } else {
+          pinOwner[k] = nm;
+        }
+      });
+    });
+    if (dupPin) {
+      var dupMsg = '节点 ' + dupPin.a + ' 和 ' + dupPin.b + ' 都写了同一个引脚 ' +
+        dupPin.pin + '；一个引脚只能属于一个节点，删掉其中一个再试';
+      return {
+        ok: false, placed: 0, error: dupMsg,
+        wiring: '未执行', level: 'error', issues: [],
+        relayout: 0, relayoutFrom: null,
+        collision: { a: dupPin.a, b: dupPin.b, sharedPin: dupPin.pin },
+        rolledBack: false, nodes: []
+      };
+    }
 
     comps.forEach(function (c) {
       if (!c || !c.type) { errs.push('有元件没写 type'); return; }
@@ -1059,7 +1213,7 @@
       relayoutFrom = res.an.issues.some(function (x) { return x.code === 'short'; })
         ? 'short' : 'electrical';
       for (var attempt = 1; attempt <= 2; attempt++) {
-        var laid = relayoutComponents(comps, nodes, attempt, doc, allowBus);
+        var laid = relayoutComponents(comps, nodes, attempt, doc);
         if (!laid) continue;
         var r2 = runLayout(laid, attempt === 2 && allowBus);
         relayout = attempt;
@@ -1067,6 +1221,43 @@
         if (r2 && r2.ok) break;
       }
     }
+
+    // 两次重排都失败时，把“哪两个节点被并到同一根线”挑出来。
+    // 只回一句“布局失败”模型没法改；点名两个节点 + 建议换 branch 才能自己修。
+    function normPin(ref) {
+      return String(ref || '').replace(/^[A-Za-z0-9_]+:/, '');
+    }
+    function sharedPinOf(a, b) {
+      var na = null, nb = null;
+      (nodes || []).forEach(function (n) {
+        if (n && n.name === a) na = n;
+        if (n && n.name === b) nb = n;
+      });
+      if (!na || !nb) return null;
+      var set = {};
+      (na.pins || []).forEach(function (p) { set[normPin(p)] = 1; });
+      var hit = null;
+      (nb.pins || []).forEach(function (p) {
+        if (!hit && set[normPin(p)]) hit = String(p);
+      });
+      return hit;
+    }
+    function collisionOf(r) {
+      if (!r || !r.wr || !r.wr.nodes) return null;
+      var hit = null;
+      r.wr.nodes.forEach(function (o) {
+        if (hit || !o || o.ok) return;
+        var m = /和节点\s+(.+?)\s+被连成了同一根线/.exec(String(o.error || ''));
+        if (m) {
+          var a = String(o.node || o.name || '?'), b = m[1];
+          hit = { a: a, b: b };
+          var sp = sharedPinOf(a, b);
+          if (sp) hit.sharedPin = sp;
+        }
+      });
+      return hit;
+    }
+    var collision = (!res || !res.ok) ? collisionOf(res) : null;
 
     if (!res) {
       res = {
@@ -1090,6 +1281,12 @@
     if (!res.ok && relayout) {
       errorText = (errorText || '布局失败') + '（已尝试重排 ' + relayout + ' 次）';
     }
+    if (collision) {
+      errorText = (errorText || '布局失败') + '；节点 ' + collision.a + ' 与 ' + collision.b +
+        (collision.sharedPin
+          ? ' 里有同一个引脚 ' + collision.sharedPin + '，把它从其中一个节点删掉再试'
+          : ' 被并到同一根线，把其中一个节点里的元件改到不同 branch 再试一次');
+    }
 
     var rolledBack = false;
     if (!res.ok && plan.rollback !== false) {
@@ -1110,6 +1307,7 @@
       terminalsPlaced: res.terms,
       relayout: relayout,
       relayoutFrom: relayoutFrom,
+      collision: collision || undefined,
       rolledBack: rolledBack
     };
   };

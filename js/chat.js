@@ -892,6 +892,11 @@
       .forEach(function (k) {
         if (r[k] !== undefined && r[k] !== null) o[k] = r[k];
       });
+    // 两次重排都失败时，把撞在一起的两个节点单独给模型，方便它改 branch 重试
+    if (r.collision) {
+      o.collision = { a: r.collision.a, b: r.collision.b };
+      if (r.collision.sharedPin) o.collision.sharedPin = r.collision.sharedPin;
+    }
     if (r.placeErrors) o.placeErrors = r.placeErrors.slice(0, 6);
     if (typeof o.components === 'string' && o.components.length > 240) {
       o.components = o.components.slice(0, 240) + '…';
@@ -938,6 +943,52 @@
     return res;
   }
 
+  // draw 成功后的工具策略：只禁“覆盖/删除”类工具，允许纯追加，最多 3 次
+  var BLOCK_AFTER_FINISH = {
+    draw_plan: 1, draw_template: 1, remove: 1,
+    remove_interlock: 1, clear_drawing: 1
+  };
+  var APPEND_AFTER_FINISH = {
+    place_component: 1, add_lead: 1, connect: 1, wire_nodes: 1
+  };
+  var MAX_APPEND_AFTER_FINISH = 3;
+
+  // 用户句子里点名要的附加元件。模板/模型偶尔只画了主体就收尾，
+  // 这里在出图后补一句提醒，让它用追加额度补上，而不是把“加个指示灯”吞掉。
+  var USER_EXTRAS = [
+    { type: 'lamp', label: '指示灯', re: /指示灯|信号灯|运行灯/ },
+    { type: 'bell', label: '电铃', re: /电铃|警铃|报警/ }
+  ];
+
+  function askedExtra(text, e) {
+    var s = String(text || '');
+    if (!e.re.test(s)) return false;
+    var neg = new RegExp('(不要|不用|不需要|无需|别|不加)[^，。；;\\n]{0,8}(' + e.re.source + ')');
+    return !neg.test(s);
+  }
+
+  function missingExtras(text, doc) {
+    return USER_EXTRAS.filter(function (e) {
+      return askedExtra(text, e) && !doc.comps.some(function (c) { return c.type === e.type; });
+    });
+  }
+
+  function afterFinishDecision(name, used) {
+    if (BLOCK_AFTER_FINISH[name]) {
+      return {
+        allowed: false,
+        reason: '已出图，禁止再调用 ' + name + '（会覆盖或删除已有图）'
+      };
+    }
+    if (APPEND_AFTER_FINISH[name] && used >= MAX_APPEND_AFTER_FINISH) {
+      return {
+        allowed: false,
+        reason: '已出图，追加调用已达上限 ' + MAX_APPEND_AFTER_FINISH + ' 次'
+      };
+    }
+    return { allowed: true };
+  }
+
   function callModel(text, doc, onText) {
     var c = cfg();
     if (!c.endpoint && !c.apiKey) return Promise.resolve(null);
@@ -954,7 +1005,9 @@
       { role: 'system', content: snapshot(doc, sel) }
     ].concat(conv.slice(-8)).concat([{ role: 'user', content: text }]);
     var touched = false;
-    var finished = false;      // draw_plan 成功后就收尾，不再让它继续动
+    var finished = false;      // draw 成功后只禁“覆盖/删除”，允许有限追加
+    var appendUsed = 0;
+    var nudgeUsed = false;
 
     function step(n) {
       // 原来的 3 轮根本不够：模型习惯"先放元件、再补自锁、再连线"，
@@ -974,7 +1027,25 @@
             '把线全部接上。不要再 place_component、不要 remove。'
         });
       }
-      var activeTools = finished ? null : toolSpecs();
+      // 出图后不再整体断掉工具，只把“会覆盖/删除”的工具从本轮工具表里拿掉
+      var activeTools = toolSpecs().filter(function (t) {
+        return !finished || !BLOCK_AFTER_FINISH[t.function.name];
+      });
+      // 图已经出好，但用户点名的灯/铃还不在图上 —— 提醒一次，让模型用追加额度补
+      if (finished && !nudgeUsed) {
+        var miss = missingExtras(text, doc);
+        if (miss.length) {
+          nudgeUsed = true;
+          messages.push({
+            role: 'system',
+            content: '【提醒】用户在指令里还要求 ' +
+              miss.map(function (e) { return e.label; }).join('、') +
+              '，但图上还没有。用 place_component 补上（出图后最多还能追加 ' +
+              (MAX_APPEND_AFTER_FINISH - appendUsed) +
+              ' 次调用），不要重新 draw_plan / draw_template。'
+          });
+        }
+      }
       return postStream(messages, activeTools, onText).then(function (acc) {
         addUsage(acc.usage);
         var calls = (acc.toolCalls || []).filter(function (x) {
@@ -1005,24 +1076,58 @@
 
         calls.forEach(function (call, i) {
           if (!call.id) call.id = 'call_' + n + '_' + i;
-          // draw_plan 成功后，同一轮的 remove/place 等调用一律跳过，
-          // 否则会把刚画好的图删掉或改坏。仍要给每个 tool_call 回一条结果。
-          if (finished) {
-            messages.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              content: JSON.stringify({ ok: false, error: 'draw_plan 已成功，跳过本轮剩余调用' })
-            });
-            return;
-          }
           var name = call.function.name;
           var args = {};
           try { args = JSON.parse(call.function.arguments || '{}'); } catch (e) {}
+
+          // 出图后：禁覆盖/删除，允许纯追加（最多 3 次）；
+          // 追加导致电气错误时只回滚这次追加，不动主图。
+          if (finished) {
+            var dec = afterFinishDecision(name, appendUsed);
+            if (!dec.allowed) {
+              messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content: JSON.stringify({ ok: false, error: dec.reason })
+              });
+              return;
+            }
+            var isAppend = !!APPEND_AFTER_FINISH[name];
+            if (isAppend) appendUsed++;
+            var snapBefore = isAppend ? A.snapshot(doc) : null;
+            var levelBefore = isAppend ? A.analyze(doc).level : null;
+            var r2;
+            try { r2 = runTool(name, args, doc); }
+            catch (e) { r2 = { ok: false, error: String(e.message || e) }; }
+            if (isAppend && levelBefore !== 'error') {
+              var anAfter = A.analyze(doc);
+              if (anAfter.level === 'error') {
+                A.restore(doc, snapBefore);
+                r2 = {
+                  ok: false,
+                  rolledBack: true,
+                  error: '这次追加导致电气错误，已只回滚这次追加：' +
+                    anAfter.issues.filter(function (x) { return x.level === 'error'; })
+                      .slice(0, 2).map(function (x) { return x.msg; }).join('；')
+                };
+              }
+            }
+            if (r2 && r2.ok) touched = true;
+            dbg('tool', name + ' ' + (r2 && r2.ok ? 'OK' : 'FAIL') + ' → ' +
+              brief(r2).slice(0, 260));
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: brief(r2)
+            });
+            return;
+          }
+
           var r;
           try { r = runTool(name, args, doc); }
           catch (e) { r = { ok: false, error: String(e.message || e) }; }
           if (r && r.ok) touched = true;
-          // draw_plan 成功 = 图已经完整落盘，再让模型折腾只会把它改坏
+          // draw_plan / draw_template 成功 = 主图已完整落盘
           if ((name === 'draw_plan' || name === 'draw_template') &&
               r && r.ok && r.level !== 'error') finished = true;
           dbg('tool', name + ' ' + (r && r.ok ? 'OK' : 'FAIL') + ' → ' +
@@ -1393,6 +1498,11 @@
     // 让 tools/model-eval.js 跑的是线上同一段代码，而不是复刻品。
     callModel: callModel,
     runTool: runTool,
+    afterFinishDecision: afterFinishDecision,
+    blockAfterFinish: BLOCK_AFTER_FINISH,
+    appendAfterFinish: APPEND_AFTER_FINISH,
+    maxAppendAfterFinish: MAX_APPEND_AFTER_FINISH,
+    missingExtras: missingExtras,
     claimedDrawn: claimedDrawn,
     guardClaim: guardClaim,
     // 评测用：按快照取日志，避免跨用例互相污染

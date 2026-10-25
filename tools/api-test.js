@@ -618,7 +618,7 @@ check('draw_plan：母线引出线绕开同列引脚', function () {
   assert(doc.wires.some(function (w) { return w.pts.length >= 4; }), '没有侧向引出线');
 });
 
-check('draw_plan：同列短路自动重排（relayout=1）', function () {
+check('draw_plan：同列多节点不短路（走线绕开，必要时重排）', function () {
   const doc = M.blank(760, 500);
   const r = A.drawPlan(doc, {
     components: [
@@ -637,9 +637,11 @@ check('draw_plan：同列短路自动重排（relayout=1）', function () {
     ]
   });
   assert(r.ok === true, JSON.stringify(r));
-  assert(r.relayout === 1, 'relayout=' + r.relayout);
-  assert(r.relayoutFrom === 'short', 'relayoutFrom=' + r.relayoutFrom);
-  assert(r.rolledBack === false, '重排成功不应回滚');
+  // 第 32 轮起 connect 会绕开中间引脚，这类图可能第一次就通（relayout=0）；
+  // 仍然短路时必须靠第 1 次重排救回来。
+  assert(r.relayout === 0 || r.relayout === 1, 'relayout=' + r.relayout);
+  assert(r.relayout === 0 || r.relayoutFrom === 'short', 'relayoutFrom=' + r.relayoutFrom);
+  assert(r.rolledBack === false, '出图成功不应回滚');
   assert(r.level !== 'error', 'level=' + r.level);
   assert(r.wiring === '全部连通', r.wiring);
   assert(doc.comps.length === 5, '元件数 ' + doc.comps.length);
