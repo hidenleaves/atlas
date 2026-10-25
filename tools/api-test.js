@@ -712,11 +712,91 @@ check('draw_template：起保停与点动', function () {
 check('draw_template：未知模板回滚原图', function () {
   const doc = makeReverse(true, true);
   const before = doc.comps.length;
-  const r = A.drawTemplate(doc, { kind: 'star' });
+  const r = A.drawTemplate(doc, { kind: 'no-such-template' });
   assert(r.ok === false, JSON.stringify(r));
   assert(/没有这种模板/.test(r.error || ''), r.error);
   assert(r.rolledBack === true, '应回滚');
   assert(doc.comps.length === before, '原图被改动');
+});
+
+check('motor3W：6 引脚语义 U1/V1/W1 上排、U2/V2/W2 下排', function () {
+  const c = M.TYPES.motor3W.make(122, 363);
+  c.r = 30;
+  const pins = M.TYPES.motor3W.pins(c);
+  assert(pins.length === 6, '引脚数=' + pins.length);
+  const top = pins.slice(0, 3), bot = pins.slice(3);
+  top.forEach(function (p) { assert(p[1] === 318, '上排 y=' + p[1]); });
+  bot.forEach(function (p) { assert(p[1] === 408, '下排 y=' + p[1]); });
+  assert(top.map(function (p) { return p[0]; }).join(',') === '107,122,137',
+    '上排 x=' + top.map(function (p) { return p[0]; }));
+  assert(bot.map(function (p) { return p[0]; }).join(',') === '107,122,137',
+    '下排 x=' + bot.map(function (p) { return p[0]; }));
+  const b = M.TYPES.motor3W.box(c);
+  pins.forEach(function (p) {
+    assert(p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h,
+      'box 没覆盖引脚 ' + p);
+  });
+});
+
+check('draw_template：星三角主电路 + 控制电路', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'star' });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'motor3W'; }), '缺 6 端子电机');
+  assert(doc.comps.some(function (c) { return c.type === 'contactor3' && c.key === 'KM1'; }),
+    '缺 KM1 主触点组');
+  assert(doc.comps.some(function (c) { return c.type === 'ktCoil' && c.key === 'KT'; }), '缺 KT');
+  ['KM1', 'KM2', 'KM3'].forEach(function (k) {
+    assert(doc.comps.some(function (c) { return c.type === 'coil' && c.key === k; }),
+      '缺线圈 ' + k);
+  });
+  const an = A.analyze(doc);
+  assert(an.level === 'ok', 'level=' + an.level + ' ' + JSON.stringify(an.issues));
+  assert(!an.issues.some(function (i) { return i.code === 'short'; }), '出现 short');
+  assert(!an.issues.some(function (i) { return i.code === 'loose'; }), '出现 loose');
+});
+
+check('draw_template：星三角 main:false 只出控制部分', function () {
+  const full = M.blank(760, 500);
+  const doc = M.blank(760, 500);
+  assert(A.drawTemplate(full, { kind: 'star', main: true }).ok === true, 'main:true 失败');
+  const r = A.drawTemplate(doc, { kind: 'star', main: false });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(doc.comps.length < full.comps.length,
+    'main:false ' + doc.comps.length + ' 不少于 main:true ' + full.comps.length);
+  assert(!doc.comps.some(function (c) { return c.type === 'contactor3'; }), '仍有主触点组');
+  assert(!doc.comps.some(function (c) { return c.type === 'motor3W'; }), '仍有 6 端子电机');
+  assert(doc.comps.some(function (c) { return c.type === 'ktCoil' && c.key === 'KT'; }), '缺 KT');
+  const an = A.analyze(doc);
+  assert(an.level === 'ok', 'level=' + an.level + ' ' + JSON.stringify(an.issues));
+  assert(doc.marks.some(function (m) { return m.kind === 'term'; }), '缺 L/N 端子');
+});
+
+check('interpretV2：星三角离线出完整图', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('画一个星三角', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(doc.comps.some(function (c) { return c.type === 'motor3W'; }), '缺 motor3W');
+  assert(doc.comps.some(function (c) { return c.type === 'contactor3'; }), '缺主触点组');
+  assert(A.analyze(doc).level === 'ok', 'level≠ok');
+});
+
+check('interpretV2：星三角不要主电路 → main:false', function () {
+  const doc = M.blank(760, 500);
+  const r = C.interpretV2('星三角不要主电路', doc);
+  assert(r && r.changed, JSON.stringify(r));
+  assert(!doc.comps.some(function (c) { return c.type === 'contactor3'; }), '仍画了主触点组');
+  assert(!doc.comps.some(function (c) { return c.type === 'motor3W'; }), '仍画了电机');
+  assert(doc.comps.some(function (c) { return c.type === 'ktCoil'; }), '缺 KT');
+  assert(A.analyze(doc).level === 'ok', 'level≠ok');
+});
+
+check('draw_template：星三角固定元件不能单独关', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawTemplate(doc, { kind: 'star', main: false, fuse: false });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(r.rolledBack === true, '应回滚');
+  assert(doc.comps.length === 0, '原图被改动');
 });
 
 check('draw_template：正反转 + 主电路', function () {

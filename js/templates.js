@@ -111,7 +111,7 @@
   /* ---------------- 正反转 + 主电路 ----------------
      复用图集 1-12「双重互锁正反转」的标准图：主电路 + 控制电路 + 端子。
      比手摆三相主电路稳，也保证主电路和控制电路的符号/代号一致。 */
-  function fromAtlas(doc, id, title, reply, kind) {
+  function fromAtlas(doc, id, title, reply, kind, opts) {
     var A = api();
     var M = root.PLCEditorModel;
     var CC = root.PLCCircuits;
@@ -120,7 +120,7 @@
     (CC.list || []).forEach(function (c) { if (c.id === id) circ = c; });
     if (!circ) return fail(kind, '', '找不到图集模板：' + id);
 
-    var d = M.fromCircuit(circ);
+    var d = M.fromCircuit(circ, opts || {});
     A.clear(doc);
     doc.comps = d.comps;
     doc.wires = d.wires;
@@ -145,6 +145,30 @@
       '两地控制画好了：甲地 SF11/SF12、乙地 SF21/SF22，停止按钮串联、启动按钮并联，' +
       '主电路带熔断器、热继电器和电机。',
       'remote');
+  }
+
+  /* ---------------- 星三角（Y-△）降压启动 ----------------
+     图集 1-16 的固定版。同一份电路支持只画控制部分（main:false），
+     供“先不要主电路”这类要求复用，不再另画一套控制图。 */
+  function star(doc, opts) {
+    opts = opts || {};
+    var main = opts.main !== false;
+    if (opts.fuse === false || opts.interlock === false || opts.selflock === false ||
+        (main && opts.thermal === false)) {
+      return fail('star', '',
+        '星三角模板固定包含熔断器、热继电器、KT 延时和 KM2/KM3 互锁，' +
+        '不支持单独关闭这些元件；需要改动请用 draw_plan。');
+    }
+    if (!main) {
+      return fromAtlas(doc, 'star', '星三角控制电路（不含主电路）',
+        '星三角控制部分画好了：SB1 停止、SB2 启动、KM1 自锁，KT 延时后由 KM2 星接切换到 KM3 三角运行；' +
+        '按你的要求没有画主电路和 6 端子电机。',
+        'star', { main: false });
+    }
+    return fromAtlas(doc, 'star', '星三角（Y-△）降压启动',
+      '星三角降压启动画好了：主电路是 QF、FU、KM1 主触点、FR 热继电器和 6 端子电机，' +
+      'U2/V2/W2 经 KM2 短接成星点、经 KM3 接成三角形；控制回路用 KT 延时自动从星形切到三角形。',
+      'star', { main: true });
   }
 
   /* ---------------- 正反转（可关互锁 / 自锁） ---------------- */
@@ -213,11 +237,12 @@
     interlock: interlock,
     reverse: reverse,
     remote: remote,
+    star: star,
     build: function (doc, opts) {
       opts = opts || {};
       var kind = opts.kind;
       if (kind === 'jog' || kind === 'selflock' || kind === 'interlock' ||
-          kind === 'reverse' || kind === 'remote') {
+          kind === 'reverse' || kind === 'remote' || kind === 'star') {
         return T[kind](doc, opts);
       }
       var msg = '没有这种模板：' + (kind || '（空）');

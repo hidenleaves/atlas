@@ -256,6 +256,163 @@
     S.label(692, 400, 'L2', { mono: true });
   }
 
+  /* ---------- 主电路：星三角（Y-△）降压启动 ---------- */
+  function starMain(S) {
+    RAILS.forEach(function (x, i) {
+      S.term(x, 34);
+      S.label(x, 21, 'L' + (i + 1), { anchor: 'middle', mono: true, size: 12 });
+      S.wire(x, 34, x, 58);
+    });
+    S.switch3(RAILS, 58, 40);
+    S.label(204, 79, 'QF', { mono: true });
+    RAILS.forEach(function (x) { S.wire(x, 98, x, 118); });
+    RAILS.forEach(function (x) { S.fuseV(x, 118, 40); });
+    S.label(204, 132, 'FU1', { mono: true });
+    RAILS.forEach(function (x) { S.wire(x, 158, x, 178); });
+
+    S.contactor3(RAILS, 178, 40, { key: 'KM1' });
+    S.label(204, 198, 'KM1', { mono: true });
+    RAILS.forEach(function (x) { S.wire(x, 218, x, 238); });
+
+    S.thermal(RAILS, 238, 40, { key: 'FR1' });
+    S.label(204, 258, 'FR1', { mono: true });
+
+    // 三相收进 U1/V1/W1（上排），电机圆心在 cy=363，半径 30
+    S.wire(66, 278, 66, 286); S.wire(66, 286, 107, 286); S.wire(107, 286, 107, 318);
+    S.wire(122, 278, 122, 318);
+    S.wire(178, 278, 178, 286); S.wire(178, 286, 137, 286); S.wire(137, 286, 137, 318);
+    S.motor3W(122, 363, 30, { key: 'M1' });
+    S.label(100, 326, 'U1', { anchor: 'end', mono: true, size: 9 });
+    S.label(122, 326, 'V1', { anchor: 'middle', mono: true, size: 9 });
+    S.label(144, 326, 'W1', { anchor: 'start', mono: true, size: 9 });
+    S.label(100, 400, 'U2', { anchor: 'end', mono: true, size: 9 });
+    S.label(122, 400, 'V2', { anchor: 'middle', mono: true, size: 9 });
+    S.label(144, 400, 'W2', { anchor: 'start', mono: true, size: 9 });
+
+    // 下排 U2/V2/W2 先按 66 / 122 / 178 三列分开
+    S.wire(107, 408, 107, 412); S.wire(107, 412, 66, 412); S.wire(66, 412, 66, 420);
+    S.wire(122, 408, 122, 420);
+    S.wire(137, 408, 137, 412); S.wire(137, 412, 178, 412); S.wire(178, 412, 178, 420);
+
+    // KM2：三只常开触点把 U2/V2/W2 短接到星点
+    [66, 122, 178].forEach(function (x) {
+      S.wire(x, 420, x, 430);
+      S.contact(x, 430, 40, { kind: 'no', key: 'KM2' });
+      S.wire(x, 470, x, 480);
+    });
+    S.wire(66, 480, 178, 480);
+    S.dot(122, 480);
+    S.label(204, 450, 'KM2', { mono: true });
+
+    // KM3：U2→V1 / V2→W1 / W2→U1（三角形）
+    S.wire(66, 412, 30, 412); S.wire(30, 412, 30, 460);
+    S.wire(122, 420, 122, 425); S.wire(122, 425, 214, 425); S.wire(214, 425, 214, 460);
+    S.wire(178, 412, 250, 412); S.wire(250, 412, 250, 460);
+    [30, 214, 250].forEach(function (x) {
+      S.contact(x, 460, 40, { kind: 'no', key: 'KM3' });
+    });
+    S.label(268, 480, 'KM3', { mono: true });
+
+    // 触点另一端绕到对应的上排端子
+    S.wire(30, 500, 30, 520); S.wire(30, 520, 15, 520);
+    S.wire(15, 520, 15, 300); S.wire(15, 300, 122, 300);
+    S.wire(214, 500, 214, 520); S.wire(214, 520, 235, 520);
+    S.wire(235, 520, 235, 315); S.wire(235, 315, 137, 315);
+    S.wire(250, 500, 250, 520); S.wire(250, 520, 265, 520);
+    S.wire(265, 520, 265, 305); S.wire(265, 305, 107, 305);
+
+    // 保护接地（独立 PE 端子，不与绕组混接）
+    S.term(250, 620);
+    S.wire(250, 620, 250, 645);
+    S.ground(250, 645);
+    S.label(262, 620, 'PE', { mono: true, size: 11 });
+  }
+
+  /* ---------- 控制电路：星三角 ---------- */
+  function starCtrl(S) {
+    S.label(316, 60, 'L1', { anchor: 'end', mono: true });
+    S.term(330, 60);
+    S.wire(330, 60, 346, 60);
+    S.fuseH(60, 346, 40);
+    S.label(362, 41, 'FU2', { anchor: 'middle', mono: true });
+    S.wire(386, 60, 420, 60);
+    S.wire(420, 60, 420, 90);
+
+    // 停止 → 热继电器常闭 → 启动
+    S.contact(420, 90, 40, { kind: 'nc', key: 'SB1' });
+    S.label(407, 110, 'SB1', { anchor: 'end', mono: true });
+    S.wire(420, 130, 420, 150);
+
+    S.contact(420, 150, 40, { kind: 'nc', key: 'FR1' });
+    S.label(407, 170, 'FR1', { anchor: 'end', mono: true });
+    S.wire(420, 190, 420, 210);
+
+    S.contact(420, 210, 40, { kind: 'no', key: 'SB2' });
+    S.label(407, 230, 'SB2', { anchor: 'end', mono: true });
+    shunt(S, 420, 210, 250, 56, { kind: 'no', key: 'KM1', label: 'KM1' });
+
+    // 启动后的公共节点：KM1 / KT / 星支路 / 三角支路并联
+    S.wire(420, 250, 420, 270);
+    S.wire(420, 270, 660, 270);
+    S.dot(500, 270); S.dot(580, 270);
+
+    S.wire(420, 270, 420, 290);
+    S.coil(420, 290, 30, { key: 'KM1' });
+    S.label(400, 305, 'KM1', { anchor: 'end', mono: true });
+    S.wire(420, 320, 420, 500);
+
+    S.wire(500, 270, 500, 290);
+    S.ktCoil(500, 290, 30, { key: 'KT' });
+    S.label(480, 305, 'KT', { anchor: 'end', mono: true });
+    S.wire(500, 320, 500, 500);
+
+    // 星形支路：KT 常闭 → KM3 常闭 → KM2 线圈
+    S.wire(580, 270, 580, 290);
+    S.contact(580, 290, 40, { kind: 'nc', key: 'KT' });
+    S.label(567, 310, 'KT', { anchor: 'end', mono: true });
+    S.wire(580, 330, 580, 350);
+    S.contact(580, 350, 40, { kind: 'nc', key: 'KM3' });
+    S.label(567, 370, 'KM3', { anchor: 'end', mono: true });
+    S.wire(580, 390, 580, 410);
+    S.coil(580, 410, 30, { key: 'KM2' });
+    S.label(560, 425, 'KM2', { anchor: 'end', mono: true });
+    S.wire(580, 440, 580, 500);
+
+    // 三角形支路：KT 常开 → KM2 常闭 → KM3 线圈
+    S.wire(660, 270, 660, 290);
+    S.contact(660, 290, 40, { kind: 'no', key: 'KT' });
+    S.label(647, 310, 'KT', { anchor: 'end', mono: true });
+    S.wire(660, 330, 660, 350);
+    S.contact(660, 350, 40, { kind: 'nc', key: 'KM2' });
+    S.label(647, 370, 'KM2', { anchor: 'end', mono: true });
+    S.wire(660, 390, 660, 410);
+    S.coil(660, 410, 30, { key: 'KM3' });
+    S.label(640, 425, 'KM3', { anchor: 'end', mono: true });
+    S.wire(660, 440, 660, 500);
+
+    // 公共 N
+    S.wire(420, 500, 660, 500);
+    S.dot(500, 500); S.dot(580, 500);
+    S.wire(660, 500, 700, 500);
+    S.term(700, 500);
+    S.label(712, 500, 'N', { mono: true });
+  }
+
+  /* ---------- 星三角整图 ---------- */
+  function starSheet(S, opts) {
+    opts = opts || {};
+    var withMain = opts.main !== false;
+    if (withMain) S.grp('main', function () { starMain(S); });
+    S.grp('ctrl', function () { starCtrl(S); });
+    S.grp('chrome', function () {
+      if (withMain) {
+        S.label(0, 9, '主电路', { size: 10, color: '#A0A5AC', spacing: 1 });
+        S.divider(270, 32, 660);
+      }
+      S.label(300, 9, '控制电路', { size: 10, color: '#A0A5AC', spacing: 1 });
+    });
+  }
+
   /* ============================================================
      电路清单
      ============================================================ */
@@ -420,13 +577,38 @@
         title: '两地控制的接法',
         body: '启动按钮并联、停止按钮串联。并联的启动按钮保证任一地点都能启动；串联的停止按钮保证任一地点都能停机，两处互不干扰。'
       }
+    },
+
+    {
+      id: 'star', no: '1-16', cat: 'star',
+      title: '星三角（Y-△）降压启动控制电路',
+      tags: ['降压启动', '经典'],
+      meta: '主电路 380 V 3~ 50 Hz　·　控制电路 220 V　·　KT 延时切换 Y→△',
+      ratio: '1 : 1',
+      w: 760, h: 680, split: 275,
+      draw: starSheet,
+      scenes: [
+        { label: '待机', status: '电动机 停转', running: false, on: [],
+          desc: 'QF、FU1 已合上，SB1 常闭、FR1 常闭保持通路；SB2 断开，KM1 / KM2 / KT 均未得电。' },
+        { label: '按下 SB2', status: '电动机 星形启动', running: true, on: ['SB2', 'KM1', 'KM2', 'KT'],
+          desc: 'KM1 主触点闭合，U1/V1/W1 得电；KT 与 KM1 同时吸合，KT 常闭仍闭合，KM2 吸合把 U2/V2/W2 短接成星点，电动机降压启动。' },
+        { label: 'KT 延时到', status: '电动机 三角形运行', running: true, on: ['KM1', 'KM3', 'KT'],
+          desc: 'KT 常闭断开、KM2 释放；KT 常开闭合，经 KM2 常闭使 KM3 吸合，U2→V1、V2→W1、W2→U1，电动机转入三角形全压运行。' },
+        { label: '按下 SB1', status: '电动机 停转', running: false, on: [],
+          desc: 'SB1 切断控制回路，KM1 / KM3 / KT 全部释放，主触点断开，电动机停转。' }
+      ],
+      note: {
+        title: '为什么先星形再三角形',
+        body: '星形接法把每相绕组电压降到 1/√3，启动电流和转矩都降到直接启动的 1/3；KT 延时到后切换成三角形，绕组恢复全压。KM2 与 KM3 必须互锁，否则星点和三相电源会被同时短接。'
+      }
     }
   ];
 
   var cats = [
     { id: 'jog', name: '点动与自锁' },
     { id: 'rev', name: '正反转控制' },
-    { id: 'remote', name: '多地控制' }
+    { id: 'remote', name: '多地控制' },
+    { id: 'star', name: '降压启动' }
   ];
 
   global.PLCCircuits = { list: list, cats: cats };

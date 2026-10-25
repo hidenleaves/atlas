@@ -97,14 +97,28 @@
   };
 
   /* ---------- 三组发热元件（热继电器） ---------- */
-  Sheet.prototype.thermal = function (xs, y, h) {
+  Sheet.prototype.thermal = function (xs, y, h, o) {
+    o = o || {};
     var out = '', i;
     for (i = 0; i < xs.length; i++) {
-      out += SYMLIB.draw('tempsw', xs[i], y, h, { kind: 'nc', cls: 'contact' });
+      out += SYMLIB.draw('tempsw', xs[i], y, h, { kind: 'nc', cls: 'contact', key: o.key || '' });
     }
     out += '<line class="dash" x1="' + n(xs[0] - 8) + '" y1="' + n(y + h * 0.55) +
       '" x2="' + n(xs[xs.length - 1] + 8) + '" y2="' + n(y + h * 0.55) + '"/>';
     return this._push(out);
+  };
+
+  /* ---------- 三极主触点（接触器） ---------- */
+  Sheet.prototype.contactor3 = function (xs, y, h, o) {
+    o = o || {};
+    return this._push(SYMLIB.poles('contactor1', xs[0], y, h, xs.length,
+      (xs[1] - xs[0]) || 56, { cls: 'contact', kind: 'no', key: o.key || '' }));
+  };
+
+  /* ---------- 时间继电器线圈 ---------- */
+  Sheet.prototype.ktCoil = function (x, y, h, o) {
+    return this._push(SYMLIB.draw('coilSlowO', x, y, h,
+      { cls: 'coil', key: (o && o.key) || '' }));
   };
 
   /* ---------- 电动机 ---------- */
@@ -112,6 +126,15 @@
     o = o || {};
     // 库里的电机符号：圆只占包围盒高度的 3/4，上面是三相进线，按此还原圆的真实半径
     return this._push(SYMLIB.draw('motor3', cx, cy - r * 2, r * 8 / 3, {
+      cls: 'motor', key: o.key || ''
+    }));
+  };
+
+  /* ---------- 六端子电机（星三角） ---------- */
+  Sheet.prototype.motor3W = function (cx, cy, r, o) {
+    o = o || {};
+    // 包围盒高 120，圆半径 40；给定圆半径 r 时总高 = 3r，圆心上移 1.5r 即符号顶边
+    return this._push(SYMLIB.draw('motor3W', cx, cy - r * 1.5, r * 3, {
       cls: 'motor', key: o.key || ''
     }));
   };

@@ -202,7 +202,7 @@
 
   /* ---------------- 路由 v2：解析 → 执行 ----------------
      route.js 只把话解析成 intent，这里才碰画布。
-     规则接不住的（主电路、星三角、复杂组合）返回 null，交给模型。 */
+     模板接不住的组合及主电路参数化返回 null，交给模型。 */
   var ROUTE_V2 = true;
 
   function canRunStep(s) {
@@ -220,11 +220,21 @@
         if (ex.interlock && at.interlock === false) return false;
         return true;
       }
+      if (s.type === 'star') {
+        // 星三角模板固定：主电路 + 控制电路，或 main:false 只出控制部分。
+        // 明确关掉模板里固定存在的元件时交给模型/手工 draw_plan。
+        var exs = s.explicit || {};
+        if (exs.fuse && at.fuse === false) return false;
+        if (exs.interlock && at.interlock === false) return false;
+        if (exs.selflock && at.selflock === false) return false;
+        if (at.main !== false && exs.thermal && at.thermal === false) return false;
+        return true;
+      }
       if (s.type === 'interlock') return !at.main && !at.fuse && !at.thermal;
       if (s.type === 'selflock') return !at.main && !at.fuse && !at.thermal && !at.interlock;
       if (s.type === 'jog') return !at.main && !at.fuse && !at.thermal && !at.interlock && !at.selflock;
       if (s.type === 'remote') return !at.interlock;   // 两地控制模板固定含主电路/自锁
-      return false;   // 星三角等暂时交给模型
+      return false;
     }
     if (s.op === 'add') return s.object === 'selflock';
     if (s.op === 'remove') return s.object === 'interlock' || !!s.key || !!s.component;
@@ -330,8 +340,13 @@
       if (s.type === 'interlock') {
         top.selflock = o.selflock === true;
       }
+      if (s.type === 'star') {
+        // 关键：main:false 只出控制部分；不要因为模板默认值又把主电路画回来
+        top.main = o.main !== false;
+      }
       if (s.type === 'reverse' || s.type === 'interlock' ||
-          s.type === 'selflock' || s.type === 'jog' || s.type === 'remote') {
+          s.type === 'selflock' || s.type === 'jog' || s.type === 'remote' ||
+          s.type === 'star') {
         var tr = A.drawTemplate(doc, top);
         return {
           reply: tr.reply || tr.error || '模板绘制失败',
@@ -465,20 +480,20 @@
         type: 'function',
         function: {
           name: 'draw_template',
-          description: '用内置模板画一整张图。用户说“点动 / 起保停 / 自锁 / 互锁 / 正反转”时优先用它，' +
+          description: '用内置模板画一整张图。用户说“点动 / 起保停 / 自锁 / 互锁 / 正反转 / 星三角”时优先用它，' +
             '比 draw_plan 更稳。会替换当前图；失败会回滚（rolledBack:true）。' +
-            '主电路、星三角等模板外的图用 draw_plan。',
+            '星三角默认出“主电路 + 控制电路”，用户只要控制部分时传 main:false。',
           parameters: {
             type: 'object',
             properties: {
               kind: {
                 type: 'string',
-                enum: ['jog', 'selflock', 'interlock', 'reverse', 'remote'],
-                description: 'jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转 / remote 两地控制'
+                enum: ['jog', 'selflock', 'interlock', 'reverse', 'remote', 'star'],
+                description: 'jog 点动 / selflock 起保停 / interlock 纯互锁 / reverse 正反转 / remote 两地控制 / star 星三角降压启动'
               },
               interlock: {
                 type: 'boolean',
-                description: 'reverse 专用：是否串对方的常闭触点，默认 true'
+                description: 'reverse 专用：是否串对方的常闭触点，默认 true；star 固定带 KM2/KM3 互锁'
               },
               selflock: {
                 type: 'boolean',
@@ -486,8 +501,8 @@
               },
               main: {
                 type: 'boolean',
-                description: 'reverse 专用：同时画教材版主电路（熔断器、接触器主触点、热继电器、电机、相序交换）。' +
-                  '主电路固定是双重互锁 + 自锁，不能再单独关互锁/自锁。'
+                description: 'reverse 主电路开关；star 默认 true（主电路 + 控制），传 false 只画控制部分。' +
+                  'reverse 主电路固定是双重互锁 + 自锁，不能再单独关互锁/自锁。'
               }
             },
             required: ['kind']

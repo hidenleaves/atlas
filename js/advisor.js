@@ -125,7 +125,7 @@
   var CONTACT = { no: 1, nc: 1, btnNo: 1, btnNc: 1, btnStop: 1, limit: 1, prox: 1, contactor3: 1 };
   // 只有接触器的辅助触点/主触点才必须"有同名线圈"；按钮、行程开关本身就是操作件，不需要
   var NEED_COIL = { no: 1, nc: 1, contactor3: 1 };
-  var MAIN = { motor: 1, contactor3: 1, thermal: 1, fuse3: 1, breaker: 1, switch3: 1 };
+  var MAIN = { motor: 1, motor3W: 1, contactor3: 1, thermal: 1, fuse3: 1, breaker: 1, switch3: 1 };
 
   // 非电磁驱动元件：本身没有线圈，靠双金属片、机械机构或感应动作。
   // 它们的同名辅助触点（no / nc）不需要再配一个线圈。
@@ -167,7 +167,8 @@
 
   /* ---------- 电路意图模板 ---------- */
   function detectIntent(comps) {
-    var n = { btnNo: 0, btnNc: 0, btnStop: 0, coil: 0, kCoil: 0, ktCoil: 0, motor: 0, contactor3: 0, thermal: 0, no: 0, nc: 0 };
+    var n = { btnNo: 0, btnNc: 0, btnStop: 0, coil: 0, kCoil: 0, ktCoil: 0,
+      motor: 0, motor3W: 0, contactor3: 0, thermal: 0, no: 0, nc: 0 };
     comps.forEach(function (c) { if (n[c.type] !== undefined) n[c.type]++; });
 
     if (n.ktCoil >= 1 && n.coil >= 2) {
@@ -207,7 +208,9 @@
     /* --- 1. 引脚悬空 --- */
     var loose = [];
     built.pins.forEach(function (p) {
-      // 三相电机下端本来就不一定接线（星形/三角形在内部接好），只要求进线端接上
+      // 二端三相电机的下端本来就不一定接线（星形/三角形在内部接好），只要求进线端接上。
+      // 六端子 motor3W 不在此列：U1/V1/W1 与 U2/V2/W2 都要接到主电路/星三角接触器，
+      // 任何一端悬空都是真的没接完。
       if (p.c.type === 'motor' && p.i > 0) return;
       var g = groups[net.find(p.key)];
       if (!g || g.wires.length === 0) loose.push(p);
@@ -310,8 +313,8 @@
     // 就说明这是控制图或混合图，某个触点找不到同代号线圈仍然是
     // 真漏画，必须保持 error。不要把这条规则简化成“有主元件就放过”。
     var hasMainPart = comps.some(function (c) {
-      return c.type === 'motor' || c.type === 'contactor3' ||
-             c.type === 'fuse3' || c.type === 'switch3';
+      return c.type === 'motor' || c.type === 'motor3W' ||
+             c.type === 'contactor3' || c.type === 'fuse3' || c.type === 'switch3';
     });
     var mainOnly = hasMainPart && Object.keys(coils).length === 0;
 
@@ -342,7 +345,9 @@
     });
 
     /* --- 6. 主电路缺保护 --- */
-    var hasMotor = comps.some(function (c) { return c.type === 'motor'; });
+    var hasMotor = comps.some(function (c) {
+      return c.type === 'motor' || c.type === 'motor3W';
+    });
     var hasFuse = comps.some(function (c) { return c.type === 'fuse' || c.type === 'fuse3' || c.type === 'fuseH'; });
     var hasThermal = comps.some(function (c) { return c.type === 'thermal'; });
     if (hasMotor && !hasFuse) {
@@ -353,7 +358,9 @@
     }
 
     /* --- 7. 未命名元件 --- */
-    var unnamed = comps.filter(function (c) { return !c.key && c.type !== 'motor' && c.type !== 'plcBox'; });
+    var unnamed = comps.filter(function (c) {
+      return !c.key && c.type !== 'motor' && c.type !== 'motor3W' && c.type !== 'plcBox';
+    });
     if (unnamed.length && comps.length > unnamed.length) {
       push('info', 'unnamed',
         '还有 ' + unnamed.length + ' 个元件没代号（代号联动靠它识别，方便的话补上）', null);

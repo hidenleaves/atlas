@@ -374,6 +374,27 @@
       box: function (c) { return { x: c.cx - c.r - 2, y: c.cy - c.r * 2 - 2, w: c.r * 2 + 4, h: c.r * 2 + 4 }; },
       svg: function (c) { return SYMLIB.draw('motor3', c.cx, c.cy - c.r * 2, c.r * 8 / 3, { cls: 'motor' }); }
     },
+    // 六端子绕线电机：上排 U1/V1/W1 接电源，下排 U2/V2/W2 接星三角接触器。
+    // 几何直接复用 symgeo 的 motor3W（包围盒 120 高，圆半径占 1/3 高）。
+    motor3W: {
+      name: '三相绕线式电动机（6 端子）', grp: 'main', tryKey: 'M',
+      make: function (x, y) { return { cx: x, cy: y, r: 30, key: '' }; },
+      label: null,
+      pinNames: ['U1', 'V1', 'W1', 'U2', 'V2', 'W2'],
+      pins: function (c) {
+        var d = c.r / 2, top = c.cy - c.r * 1.5, bot = c.cy + c.r * 1.5;
+        return [[c.cx - d, top], [c.cx, top], [c.cx + d, top],
+                [c.cx - d, bot], [c.cx, bot], [c.cx + d, bot]];
+      },
+      box: function (c) {
+        return { x: c.cx - c.r - 4, y: c.cy - c.r * 1.5 - 4,
+          w: c.r * 2 + 8, h: c.r * 3 + 8 };
+      },
+      svg: function (c) {
+        return SYMLIB.draw('motor3W', c.cx, c.cy - c.r * 1.5, c.r * 3,
+          { cls: 'motor', key: c.key || '' });
+      }
+    },
     ground: {
       name: '接地', grp: 'prot', tryKey: '',
       make: function (x, y) { return { x: x, y: y, key: '' }; },
@@ -1018,12 +1039,24 @@
       return add({ k: 'comp', type: 'switch3', x: xs[0], y: y, h: h,
         pitch: (xs[1] - xs[0]) || 56, poles: xs.length });
     };
-    self.thermal = function (xs, y, h) {
+    self.thermal = function (xs, y, h, o) {
       return add({ k: 'comp', type: 'thermal', x: xs[0], y: y, h: h,
-        pitch: (xs[1] - xs[0]) || 56, poles: xs.length });
+        pitch: (xs[1] - xs[0]) || 56, poles: xs.length,
+        key: (o && o.key) || '' });
+    };
+    self.contactor3 = function (xs, y, h, o) {
+      return add({ k: 'comp', type: 'contactor3', x: xs[0], y: y, h: h,
+        pitch: (xs[1] - xs[0]) || 56, poles: xs.length,
+        key: (o && o.key) || '' });
+    };
+    self.ktCoil = function (x, y, h, o) {
+      return add({ k: 'comp', type: 'ktCoil', x: x, y: y, h: h, key: (o && o.key) || '' });
     };
     self.motor = function (cx, cy, r, o) {
       return add({ k: 'comp', type: 'motor', cx: cx, cy: cy, r: r, key: (o && o.key) || '' });
+    };
+    self.motor3W = function (cx, cy, r, o) {
+      return add({ k: 'comp', type: 'motor3W', cx: cx, cy: cy, r: r, key: (o && o.key) || '' });
     };
     self.ground = function (x, y) { return add({ k: 'comp', type: 'ground', x: x, y: y }); };
     self.label = function (x, y, text, o) {
@@ -1041,9 +1074,9 @@
     return self;
   }
 
-  function fromCircuit(circ) {
+  function fromCircuit(circ, opts) {
     var recs = [];
-    circ.draw(captureSheet(recs));
+    circ.draw(captureSheet(recs), opts || {});
 
     var doc = blank(circ.w, circ.h);
     doc.no = circ.no;
