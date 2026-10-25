@@ -94,18 +94,26 @@ if (!MODE) {
    ------------------------------------------------------------ */
 if (MODE === 'selftest') {
   const { execFileSync } = require('child_process');
+  const outDir = path.join(__dirname, 'eval-results');
+
+  // 不再 rmSync 整个目录（会触发沙箱的批量删除拦截，也容易和并发评测打架）。
+  // 改成记录「跑之前有哪些文件」，跑完取新出现的那个。
   const runOne = policy => {
+    const before = fs.existsSync(outDir)
+      ? new Set(fs.readdirSync(outDir).filter(f => f.includes('fake-' + policy)))
+      : new Set();
     try {
       execFileSync(process.execPath, [__filename, '--fake', policy], { encoding: 'utf8', stdio: 'pipe' });
     } catch (e) { /* 非零退出正常，结果看 JSON */ }
-    const dir = path.join(__dirname, 'eval-results');
-    const files = fs.readdirSync(dir).filter(f => f.includes('fake-' + policy)).sort();
-    const latest = files[files.length - 1];
-    return JSON.parse(fs.readFileSync(path.join(dir, latest), 'utf8')).summary;
+    const fresh = fs.readdirSync(outDir)
+      .filter(f => f.includes('fake-' + policy) && !before.has(f))
+      .sort();
+    const pick = fresh.length ? fresh[fresh.length - 1]
+      : fs.readdirSync(outDir).filter(f => f.includes('fake-' + policy)).sort().pop();
+    return JSON.parse(fs.readFileSync(path.join(outDir, pick), 'utf8')).summary;
   };
 
   console.log('=== harness 自检：三种假模型判别力 ===\n');
-  fs.rmSync(path.join(__dirname, 'eval-results'), { recursive: true, force: true });
   const g = runOne('good');
   const s = runOne('sloppy');
   const l = runOne('lazy');
@@ -408,6 +416,10 @@ function runCase(c) {
   // DBG 是模块内累积的数组，且超过 160 条会被截断。
   // 用长度快照会在截断后拿到空数组，所以每次用例前显式清空。
   if (C.clearDebug) C.clearDebug();
+  // 多轮历史同样是模块级的（chat.js 的 conv，取最后 8 条拼进请求）。
+  // 不清空的话第 N 条用例会看到前几条的问答，测的就不是单指令了，
+  // 而且每次运行的历史不同 → 通过率大幅漂移。评测必须隔离。
+  if (C.resetConversation) C.resetConversation();
   return C.callModel(c.text, doc, null).then(res => {
     const ms = Date.now() - t0;
     const fresh = C.getDebug();

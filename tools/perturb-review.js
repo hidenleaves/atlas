@@ -66,14 +66,16 @@ const BLOCKING = [
   ['__TPL_LEGAL__',                  { fn: 'tplLegal' },         'drawTemplate 合法调用必须放行'],
   ['__TPL_ILLEGAL__',                { fn: 'tplIllegal' },       'drawTemplate 非法参数必须拒绝'],
   ['__INTERLOCK_SELF__',             { fn: 'interlockSelf' },    '互锁+自锁'],
+  // 第 27 轮修好，升入必修防止回退：
+  ['__MAIN_ONLY__',                  { fn: 'mainOnly' },         '只画主电路不能因缺线圈被拦'],
+  ['__THERMAL_CONTACT__',            { fn: 'thermalContact' },   '热继电器触点无线圈不该报错'],
+  ['__COIL_MISSING__',               { fn: 'coilMissing' },      '真漏画线圈仍须报错'],
 ];
 
 const KNOWN = [
   ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件（已裁定放弃）'],
   ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型（安全）'],
   ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name（范围外）'],
-  ['__MAIN_ONLY__',                  { fn: 'mainOnly' },         '只画主电路被线圈配对拦死（P0 待修）'],
-  ['__THERMAL_CONTACT__',            { fn: 'thermalContact' },   '热继电器触点无线圈误报（同类）'],
 ];
 
 const PROBES = {
@@ -216,6 +218,28 @@ const PROBES = {
     const an = A.analyze(d);
     const errs = an.issues.filter(x => x.level === 'error');
     return { ok: errs.length === 0, detail: `level=${an.level} error=${errs.length}` };
+  },
+  coilMissing() {
+    // 反向保护：放宽「主电路免检线圈」之后，真漏画线圈不能跟着被放过。
+    // 图里既有线圈又有主元件时，某触点代号找不到线圈仍必须报 error。
+    const d = M.blank();
+    const r = A.drawPlan(d, {
+      components: [
+        { type: 'btnNo', key: 'SF1', branch: 1 },
+        { type: 'nc', key: 'QA9', branch: 2 },
+        { type: 'coil', key: 'QA1', branch: 3 },
+        { type: 'motor', key: 'M1', branch: 5 }
+      ],
+      nodes: [
+        { name: 'L', pins: ['SF1#0'] },
+        { name: 'A', pins: ['SF1#1', 'nc:QA9#0'] },
+        { name: 'B', pins: ['nc:QA9#1', 'coil:QA1#0'] },
+        { name: 'N', pins: ['coil:QA1#1'] }
+      ]
+    });
+    const errs = (r.issues || []).filter(x => x.level === 'error');
+    const hit = errs.some(x => /QA9/.test(x.msg));
+    return { ok: hit, detail: `level=${r.level} error=${errs.length}${hit ? ' 命中 QA9' : ' 没拦住'}` };
   }
 };
 

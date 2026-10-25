@@ -1383,6 +1383,9 @@
     // 评测用：按快照取日志，避免跨用例互相污染
     getDebug: function () { return DBG.slice(); },
     clearDebug: function () { DBG = []; },
+    // 评测用：单条指令的评测必须从干净的多轮历史开始，
+    // 否则第 N 条用例会看到前几条的对话，测的就不是「一句话画一张图」了。
+    resetConversation: function () { conv = []; },
     systemPrompt: SYS,
     snapshot: snapshot,
     buildJog: buildJog,
