@@ -75,6 +75,9 @@ const BLOCKING = [
   ['__TEMPLATE_OVERMATCH__',         { fn: 'templateOvermatch' }, '模板匹配了但漏掉附加要求'],
   // 第 30 轮修好，升入必修：同列短路要自动重排，不能整图回滚
   ['__LAYOUT_SHORT__',               { fn: 'layoutShort' },      '同列短路自动重排，元件不能全丢'],
+  // 第 31 轮新功能：星三角模板（6 端子电机 + 主电路 + 控制回路）
+  ['__STAR_DELTA__',                 { fn: 'starDelta' },        '星三角整图：3 接触器/KT/6端子电机'],
+  ['__STAR_CONTROL_ONLY__',          { fn: 'starControlOnly' },  '星三角只要控制部分时不能带主电路'],
 ];
 
 const KNOWN = [
@@ -206,6 +209,46 @@ const PROBES = {
       ok: r.ok && r.level !== 'error' && d.comps.length === 2,
       detail: `ok=${r.ok} level=${r.level} comps=${d.comps.length} ` +
         (errs.length ? 'error: ' + errs[0].msg.slice(0, 34) : String(r.error || '').slice(0, 34))
+    };
+  },
+  starDelta() {
+    // 星三角：固定拓扑模板。要求主电路（3 个接触器角色：主/星/角）、
+    // 延时继电器、六端子电机、L/N 端子，且电气自检不能报 error。
+    const d = M.blank();
+    const r = A.drawTemplate(d, { kind: 'star' });
+    const cnt = t => d.comps.filter(c => c.type === t).length;
+    const hasStar = d.comps.some(c => (c.key || '') === 'KM2');
+    const hasDelta = d.comps.some(c => (c.key || '') === 'KM3');
+    const terms = d.marks.filter(m => m.kind === 'term').length;
+    const bad = [];
+    if (!r.ok || r.level === 'error') bad.push('level=' + r.level);
+    if (d.comps.length < 20) bad.push(d.comps.length + '元件<20');
+    if (cnt('motor3W') !== 1) bad.push('六端子电机=' + cnt('motor3W'));
+    if (cnt('ktCoil') < 1) bad.push('KT=' + cnt('ktCoil'));
+    if (cnt('thermal') < 1) bad.push('热继电器=' + cnt('thermal'));
+    if (!hasStar) bad.push('缺 KM2(星)');
+    if (!hasDelta) bad.push('缺 KM3(角)');
+    if (terms < 2) bad.push('端子=' + terms);
+    return {
+      ok: bad.length === 0,
+      detail: bad.length ? bad.join(',') : `${d.comps.length}元件 / ${terms}端子 / level=${r.level}`
+    };
+  },
+  starControlOnly() {
+    // 用户说「不要主电路，只画控制部分」时，绝不能把主电路一起画出来。
+    // 模板能出 13 元件但探针只看元件数就会漏 —— 必须查有没有主触点/电机。
+    const d = M.blank();
+    const r = A.drawTemplate(d, { kind: 'star', main: false });
+    const bad = [];
+    if (!r.ok || r.level === 'error') bad.push('level=' + r.level);
+    if (d.comps.filter(c => c.type === 'contactor3').length) bad.push('含主触点');
+    if (d.comps.filter(c => c.type === 'motor3W').length) bad.push('含电机');
+    if (d.comps.filter(c => c.type === 'thermal').length) bad.push('含热继电器主件');
+    if (!d.comps.filter(c => c.type === 'coil').length) bad.push('没有线圈');
+    if (!d.comps.filter(c => c.type === 'ktCoil').length) bad.push('没有 KT');
+    return {
+      ok: bad.length === 0,
+      detail: bad.length ? bad.join(',') : `${d.comps.length}元件，纯控制回路`
     };
   },
   thermalContact() {
