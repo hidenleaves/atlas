@@ -92,7 +92,11 @@
     if (opt.x != null && opt.y != null) {
       probe = t.make(snap(opt.x), snap(opt.y));
       probe.type = type;
-      return { x: probe.x, y: probe.y };
+      // 电机这类圆形符号存的是 cx/cy，不是 x/y
+      return {
+        x: probe.x != null ? probe.x : probe.cx,
+        y: probe.y != null ? probe.y : probe.cy
+      };
     }
 
     // 2) 指定了支路列号：同一列往下摞，不同列往右开
@@ -610,6 +614,131 @@
     return { ok: bad.length === 0, total: out.length, failed: bad.length, nodes: out };
   };
 
+  /* 布局兜底用的布线：每根等电位线走一条独立水平母线，
+     每个引脚再单独占一条竖直通道。
+     wireNodes 的“同列竖向串联 + 横向母线”在元件很多时会撞列；
+     这里改用通道布线，元件位置不同也不会把两个节点并成一根线。
+     节点表仍完全来自模型，这里只决定线怎么绕。 */
+  function wireNodesBus(doc, nodes) {
+    var out = [];
+    var usedLane = {};
+
+    nodes.forEach(function (node, ni) {
+      var name = node.name || ('节点' + (ni + 1));
+      var list = [], errs = [];
+      (node.pins || []).forEach(function (ref) {
+        var p = parsePin(doc, ref);
+        if (p.error) { errs.push(ref + '：' + p.error); return; }
+        list.push(p);
+      });
+
+      if (errs.length) {
+        out.push({ node: name, ok: false, error: errs.join('；') });
+        return;
+      }
+      if (!list.length) {
+        out.push({ node: name, ok: false, error: '这个节点没有可用引脚' });
+        return;
+      }
+      if (list.length === 1) {
+        out.push({ node: name, ok: true, pins: 1, wires: 0, note: '单引脚节点，无需连线' });
+        return;
+      }
+
+      var busY = 20 + ni * 14;
+      var items = [];
+      for (var pi = 0; pi < list.length; pi++) {
+        var p = list[pi];
+        var preferLeft = p.pt[1] <= p.comp.y;
+        var offs = preferLeft
+          ? [-24, -30, -36, -42, -48, -54, -18, -12]
+          : [24, 30, 36, 42, 48, 54, 18, 12];
+        var lane = null;
+        for (var oi = 0; oi < offs.length; oi++) {
+          var lx = Math.round(p.pt[0] + offs[oi]);
+          if (lx < 8 || lx > doc.w - 8) continue;
+          if (usedLane[lx]) continue;
+
+          // 竖直引线不能从别的引脚上穿过去
+          var lo = Math.min(p.pt[1], busY), hi = Math.max(p.pt[1], busY);
+          var hit = false;
+          M.pinsOf(doc).forEach(function (q) {
+            if (q.id === p.comp.id && q.i === p.i) return;
+            if (Math.abs(q.x - lx) < 0.5 && q.y > lo - 0.5 && q.y < hi + 0.5) hit = true;
+          });
+          if (hit) continue;
+
+          // 横向短引线也不能穿过别的引脚
+          var x1 = Math.min(p.pt[0], lx), x2 = Math.max(p.pt[0], lx);
+          M.pinsOf(doc).forEach(function (q) {
+            if (q.id === p.comp.id && q.i === p.i) return;
+            if (Math.abs(q.y - p.pt[1]) < 0.5 && q.x > x1 + 0.5 && q.x < x2 - 0.5) hit = true;
+          });
+          if (hit) continue;
+
+          lane = lx;
+          break;
+        }
+        if (lane == null) {
+          out.push({ node: name, ok: false, error: '重排后仍找不到干净的引线通道' });
+          return;
+        }
+        items.push({ p: p, lane: lane });
+      }
+
+      items.forEach(function (it) { usedLane[it.lane] = true; });
+      var bx0 = Math.min.apply(null, items.map(function (x) { return x.lane; }));
+      var bx1 = Math.max.apply(null, items.map(function (x) { return x.lane; }));
+
+      items.forEach(function (it) {
+        var pts = [[it.p.pt[0], it.p.pt[1]]];
+        if (it.lane !== it.p.pt[0]) pts.push([it.lane, it.p.pt[1]]);
+        if (busY !== it.p.pt[1]) pts.push([it.lane, busY]);
+        doc.wires.push({ id: M.uid('w'), pts: pts });
+      });
+      doc.wires.push({ id: M.uid('w'), pts: [[bx0, busY], [bx1, busY]] });
+
+      out.push({ node: name, ok: true, pins: list.length, wires: items.length + 1, _list: list });
+    });
+
+    // 和 wireNodes 一样回网表复核：节点表本身把同一个引脚放进两个节点时，
+    // 布线再漂亮也是短路，不能报成功。
+    if (global.PLCAdvisor) {
+      var nb = null;
+      try { nb = global.PLCAdvisor.buildNets(doc); } catch (e) { nb = null; }
+      if (nb) {
+        var netOf = function (pt) {
+          var k = (Math.round(pt[0] * 2) / 2) + ',' + (Math.round(pt[1] * 2) / 2);
+          return nb.net.find(k);
+        };
+        var valid = out.filter(function (x) { return x.ok && x._list; });
+        valid.forEach(function (o) {
+          var r0 = netOf(o._list[0].pt);
+          var miss = o._list.filter(function (p) { return netOf(p.pt) !== r0; });
+          if (miss.length) {
+            o.ok = false;
+            o.error = '有 ' + miss.length + ' 个引脚没接进这根线';
+          }
+        });
+        for (var i = 0; i < valid.length; i++) {
+          for (var j = i + 1; j < valid.length; j++) {
+            if (!valid[i].ok || !valid[j].ok) continue;
+            if (netOf(valid[i]._list[0].pt) === netOf(valid[j]._list[0].pt)) {
+              valid[i].ok = false;
+              valid[i].error = '和节点 ' + (valid[j].node || valid[j].name) + ' 被连成了同一根线（短路）';
+              valid[j].ok = false;
+              valid[j].error = '和节点 ' + (valid[i].node || valid[i].name) + ' 被连成了同一根线（短路）';
+            }
+          }
+        }
+      }
+    }
+    out.forEach(function (o) { delete o._list; });
+
+    var bad = out.filter(function (x) { return !x.ok; });
+    return { ok: bad.length === 0, total: out.length, failed: bad.length, nodes: out };
+  }
+
   /* 一次画完整张图：放元件 + 连线 + 自检。
      为什么需要它：模型分十来次 place、再调 wire_nodes、再 check，
      一次请求就要几十秒，而多轮预算有限（实测 4 轮就把额度耗光了，
@@ -617,15 +746,17 @@
   /* 一次画完整张图：放元件 + 连线 + 自检。
      原子性：先快照，失败就恢复——模型写错类型时不会把用户原图清空。 */
   function restoreDoc(doc, snap) {
-    doc.comps = snap.comps;
-    doc.wires = snap.wires;
-    doc.marks = snap.marks;
-    doc.deco = snap.deco;
-    doc.texts = snap.texts;
-    doc.title = snap.title;
-    doc.no = snap.no;
-    doc.w = snap.w;
-    doc.h = snap.h;
+    // 必须深拷贝：重试时 doc.comps 会被继续 push，直接复用数组会把快照写脏
+    var s = M.clone(snap);
+    doc.comps = s.comps;
+    doc.wires = s.wires;
+    doc.marks = s.marks;
+    doc.deco = s.deco;
+    doc.texts = s.texts;
+    doc.title = s.title;
+    doc.no = s.no;
+    doc.w = s.w;
+    doc.h = s.h;
   }
 
   // align / near 引用的元件必须先放；成环就报错，不硬摆。
@@ -651,6 +782,118 @@
     return out;
   }
 
+  /* ---------------- 失败后的局部重排 ----------------
+     只改坐标 / branch，不改元件类型、代号和节点表。
+     第一次按“串联链”分列；第二次每个元件单独一列，最大化拉开。 */
+  function findPlanRef(list, ref) {
+    var sp = splitOcc(ref);
+    var s = sp.base, occ = sp.occ;
+    var tm = s.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/);
+    var hits = tm ? list.filter(function (c) {
+      return c.type === tm[1] && (c.key || '') === tm[2];
+    }) : list.filter(function (c) {
+      return (c.key || '') === s;
+    });
+    return occ != null ? (hits[occ - 1] || null) : (hits[0] || null);
+  }
+
+  function planPin(list, ref) {
+    var s = String(ref || '').trim();
+    var idx = 0;
+    var m = s.match(/^(.*)#(\d+)$/);
+    if (m) { s = m[1]; idx = parseInt(m[2], 10); }
+    var c = findPlanRef(list, s);
+    return c ? { c: c, i: idx } : null;
+  }
+
+  function relayoutComponents(comps, nodes, attempt, doc, allowBus) {
+    var list = comps.map(function (c, i) {
+      var o = {};
+      for (var k in c) o[k] = c[k];
+      o._idx = i;
+      delete o.x; delete o.y; delete o.cx; delete o.cy;
+      return o;
+    });
+
+    if (attempt === 2 && allowBus) {
+      // 兜底：两行网格 + 每个节点一条独立母线（配合 wireNodesBus）。
+      // 元件多时一列放不下，单列重排会把后几个元件顶到画布外；
+      // 两行错半列摆放，竖直引线能从元件之间的缝里穿过去。
+      var n = list.length;
+      var row1 = Math.ceil(n / 2);
+      var base = Math.max(30, Math.round(doc.w * 0.08 / 10) * 10);
+      var usable = doc.w - base * 2;
+      // 三极元件（contactor3 / fuse3 / thermal）横向有 112px 的引脚跨度，
+      // 按 40px 小元件排会互相压住引脚，导致找不到走线通道。
+      var maxW = 40;
+      list.forEach(function (c) {
+        var t = M.TYPES[c.type];
+        if (!t || !t.make) return;
+        var probe = t.make(0, 0);
+        probe.type = c.type;   // pinsOfComp 靠 type 认引脚
+        var ps = M.pinsOfComp(probe);
+        var lo = 0, hi = 0;
+        ps.forEach(function (p) { lo = Math.min(lo, p[0]); hi = Math.max(hi, p[0]); });
+        maxW = Math.max(maxW, hi - lo + 40);
+      });
+      var unit = Math.max(90, maxW + 30);
+      var pitch = row1 > 1 ? Math.min(unit, Math.floor(usable / (row1 - 1) / 10) * 10) : unit;
+      if (n > 1 && pitch < 72) return null;
+      var y1 = Math.round(doc.h * 0.48 / 10) * 10;
+      var y2 = Math.round(doc.h * 0.80 / 10) * 10;
+      list.forEach(function (c, i) {
+        delete c.align; delete c.near; delete c.branch; delete c.side;
+        if (i < row1) {
+          c.x = base + i * pitch;
+          c.y = y1;
+        } else {
+          c.x = base + Math.round(pitch / 2) + (i - row1) * pitch;
+          c.y = y2;
+        }
+      });
+      return list;
+    }
+
+    if (attempt === 2) {
+      // 在已有图上重排时不动用户原来的坐标，只换列。
+      list.forEach(function (c, i) { c.branch = Math.min(6, i + 1); });
+      return list;
+    }
+
+    // 第一次：按串联链分列。
+    // 2 引脚节点里“一上一下”视为串联；同为上脚/下脚视为并联母线，不合并。
+    var parent = list.map(function (_, i) { return i; });
+    function find(i) {
+      while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+      return i;
+    }
+    function union(a, b) {
+      a = find(a); b = find(b);
+      if (a !== b) parent[b] = a;
+    }
+
+    (nodes || []).forEach(function (n) {
+      var pins = n.pins || [];
+      if (pins.length !== 2) return;
+      var a = planPin(list, pins[0]);
+      var b = planPin(list, pins[1]);
+      if (!a || !b || a.c === b.c) return;
+      if ((a.i % 2) !== (b.i % 2)) union(a.c._idx, b.c._idx);
+    });
+
+    var groups = {};
+    list.forEach(function (c, i) {
+      var r = find(i);
+      (groups[r] = groups[r] || []).push(i);
+    });
+    var keys = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
+    keys.forEach(function (k, ci) {
+      var branch = Math.min(6, ci + 1);
+      groups[k].forEach(function (i) { list[i].branch = branch; });
+    });
+    return list;
+  }
+
   api.drawPlan = function (doc, plan) {
     plan = plan || {};
     var comps = Array.isArray(plan.components) ? plan.components : [];
@@ -671,8 +914,6 @@
     comps.forEach(function (c) {
       if (!c || !c.type) { errs.push('有元件没写 type'); return; }
       if (!M.TYPES[c.type]) { errs.push('没有这种元件：' + c.type); return; }
-      // 同一个 type:key 可以出现多次（星三角里 QA3 有两个常闭），
-      // 用 @n 在 nodes 里区分第几个；这里不再报"重复元件"。
       var ref = c.align || c.near;
       if (ref) {
         var inDoc = !plan.clear && !!findRef(doc, ref);
@@ -688,145 +929,187 @@
         ok: false, placed: 0, placeErrors: errs,
         error: '放置前检查失败：' + errs.join('；'),
         wiring: '未执行', level: 'error', issues: [],
-        rolledBack: false, nodes: []
+        relayout: 0, relayoutFrom: null, rolledBack: false, nodes: []
       };
     }
 
-    var ordered = orderForRefs(comps, doc, !plan.clear);
-    if (!ordered) {
+    if (!orderForRefs(comps, doc, !plan.clear)) {
       return {
         ok: false, placed: 0,
         placeErrors: ['align/near 依赖成环，无法排序'],
         error: '放置前检查失败：align/near 依赖成环',
         wiring: '未执行', level: 'error', issues: [],
-        rolledBack: false, nodes: []
+        relayout: 0, relayoutFrom: null, rolledBack: false, nodes: []
       };
     }
 
     var snap = M.clone(doc);
-    if (plan.clear) api.clear(doc);
 
-    var placed = [];
-    ordered.forEach(function (c) {
-      var r = api.place(doc, c.type, {
-        key: c.key, branch: c.branch, align: c.align,
-        near: c.near, side: c.side, poles: c.poles
+    // 端子放在指定节点第一个引脚的外侧：先引一段短线，再把 term 放在线头。
+    function placeTerms() {
+      var termsPlaced = 0;
+      terminals.forEach(function (t) {
+        var node = null;
+        for (var i = 0; i < nodes.length; i++) {
+          if (nodes[i].name === t.node) { node = nodes[i]; break; }
+        }
+        if (!node || !node.pins || !node.pins.length) return;
+        var p = parsePin(doc, node.pins[0]);
+        if (p.error) return;
+        if (doc.marks.some(function (m) {
+          return m.kind === 'term' && samePoint([m.x, m.y], p.pt);
+        })) return;
+
+        var nodeSet = {};
+        (node.pins || []).forEach(function (ref) {
+          var q = parsePin(doc, ref);
+          if (!q.error) nodeSet[q.comp.id + '#' + q.i] = true;
+        });
+
+        function segClear(x2, y2) {
+          var x1 = p.pt[0], y1 = p.pt[1];
+          for (var k = 2; k <= 6; k++) {
+            var tt = k / 6;
+            var px = x1 + (x2 - x1) * tt;
+            var py = y1 + (y2 - y1) * tt;
+            var inside = doc.comps.some(function (c) {
+              var b = boxOf(c);
+              return px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h;
+            });
+            if (inside) return false;
+          }
+          var bad = false;
+          M.pinsOf(doc).forEach(function (q) {
+            if (q.id === p.comp.id && q.i === p.i) return;
+            if (nodeSet[q.id + '#' + q.i]) return;
+            if (M.onSeg([x1, y1], [x2, y2], q.x, q.y)) bad = true;
+            if (Math.hypot(q.x - x2, q.y - y2) < 6) bad = true;
+          });
+          if (bad) return false;
+          return !doc.marks.some(function (m) {
+            return m.kind === 'term' && Math.hypot(m.x - x2, m.y - y2) < 8;
+          });
+        }
+
+        var dirs = [[-28, 0], [28, 0], [0, -28], [0, 28]];
+        var spot = null;
+        for (var di = 0; di < dirs.length; di++) {
+          var qx = p.pt[0] + dirs[di][0], qy = p.pt[1] + dirs[di][1];
+          if (segClear(qx, qy)) { spot = [qx, qy]; break; }
+        }
+        if (spot) {
+          var w = {
+            id: M.uid('w'),
+            pts: [[p.pt[0], p.pt[1]], [spot[0], spot[1]]],
+            a: { c: p.comp.id, i: p.i }
+          };
+          M.resolveWire(doc, w);
+          doc.wires.push(w);
+        } else {
+          spot = [p.pt[0], p.pt[1]];
+        }
+
+        doc.marks.push({
+          id: M.uid('m'), kind: 'term',
+          x: spot[0], y: spot[1], name: String(t.name || '')
+        });
+        termsPlaced++;
       });
-      if (r.ok) placed.push(r.key || r.type);
-      else errs.push((c.key || c.type) + '：' + r.error);
-    });
-
-    var wr;
-    if (nodes.length) {
-      wr = api.wireNodes(doc, nodes);
-    } else {
-      wr = { ok: false, error: '没有给 nodes，元件放好了但一根线都没连',
-             failed: 0, total: 0, nodes: [] };
+      return termsPlaced;
     }
 
-    // 端子放在指定节点第一个引脚的外侧：先引一段短线，再把 term 放在线头，
-    // 这样不会压在符号上，电气上仍和该节点同网。
-    var termsPlaced = 0;
-    terminals.forEach(function (t) {
-      var node = null;
-      for (var i = 0; i < nodes.length; i++) {
-        if (nodes[i].name === t.node) { node = nodes[i]; break; }
-      }
-      if (!node || !node.pins || !node.pins.length) return;
-      var p = parsePin(doc, node.pins[0]);
-      if (p.error) return;
-      if (doc.marks.some(function (m) {
-        return m.kind === 'term' && samePoint([m.x, m.y], p.pt);
-      })) return;
+    function runLayout(layoutComps, busWire) {
+      restoreDoc(doc, snap);
+      if (plan.clear) api.clear(doc);
+      var ordered = orderForRefs(layoutComps, doc, !plan.clear);
+      if (!ordered) return null;
 
-      var nodeSet = {};
-      (node.pins || []).forEach(function (ref) {
-        var q = parsePin(doc, ref);
-        if (!q.error) nodeSet[q.comp.id + '#' + q.i] = true;
+      var placed = [], errs2 = [];
+      ordered.forEach(function (c) {
+        var r = api.place(doc, c.type, {
+          key: c.key, branch: c.branch, align: c.align,
+          near: c.near, side: c.side, poles: c.poles,
+          x: c.x, y: c.y
+        });
+        if (r.ok) placed.push(r.key || r.type);
+        else errs2.push((c.key || c.type) + '：' + r.error);
       });
 
-      function segClear(x2, y2) {
-        var x1 = p.pt[0], y1 = p.pt[1];
-        for (var k = 2; k <= 6; k++) {
-          var tt = k / 6;
-          var px = x1 + (x2 - x1) * tt;
-          var py = y1 + (y2 - y1) * tt;
-          var inside = doc.comps.some(function (c) {
-            var b = boxOf(c);
-            return px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h;
-          });
-          if (inside) return false;
-        }
-        var bad = false;
-        M.pinsOf(doc).forEach(function (q) {
-          if (q.id === p.comp.id && q.i === p.i) return;
-          if (nodeSet[q.id + '#' + q.i]) return;
-          if (M.onSeg([x1, y1], [x2, y2], q.x, q.y)) bad = true;
-          if (Math.hypot(q.x - x2, q.y - y2) < 6) bad = true;
-        });
-        if (bad) return false;
-        return !doc.marks.some(function (m) {
-          return m.kind === 'term' && Math.hypot(m.x - x2, m.y - y2) < 8;
-        });
-      }
-
-      var dirs = [[-28, 0], [28, 0], [0, -28], [0, 28]];
-      var spot = null;
-      for (var di = 0; di < dirs.length; di++) {
-        var qx = p.pt[0] + dirs[di][0], qy = p.pt[1] + dirs[di][1];
-        if (segClear(qx, qy)) { spot = [qx, qy]; break; }
-      }
-      if (spot) {
-        var w = {
-          id: M.uid('w'),
-          pts: [[p.pt[0], p.pt[1]], [spot[0], spot[1]]],
-          a: { c: p.comp.id, i: p.i }
-        };
-        M.resolveWire(doc, w);
-        doc.wires.push(w);
+      var wr;
+      if (nodes.length) {
+        wr = busWire ? wireNodesBus(doc, nodes) : api.wireNodes(doc, nodes);
       } else {
-        spot = [p.pt[0], p.pt[1]];
+        wr = { ok: false, error: '没有给 nodes，元件放好了但一根线都没连',
+               failed: 0, total: 0, nodes: [] };
       }
 
-      doc.marks.push({
-        id: M.uid('m'), kind: 'term',
-        x: spot[0], y: spot[1], name: String(t.name || '')
-      });
-      termsPlaced++;
-    });
+      var terms = placeTerms();
+      var an = api.analyze(doc);
+      var ok = errs2.length === 0 && wr.ok && an.level !== 'error';
+      return { placed: placed, errs: errs2, wr: wr, an: an, terms: terms, ok: ok };
+    }
 
-    var an = api.analyze(doc);
-    var ok = errs.length === 0 && wr.ok && an.level !== 'error';
+    var res = runLayout(comps, false);
+    var relayout = 0, relayoutFrom = null;
+    // 总线兜底会用自己算的坐标，只在“整张新图”（clear 或空画布）上用；
+    // 在已有图上不能把用户原来的元件位置冲掉。
+    var allowBus = !!plan.clear || snap.comps.length === 0;
+
+    if (res && !res.ok && res.an.level === 'error' && plan.rollback !== false) {
+      relayoutFrom = res.an.issues.some(function (x) { return x.code === 'short'; })
+        ? 'short' : 'electrical';
+      for (var attempt = 1; attempt <= 2; attempt++) {
+        var laid = relayoutComponents(comps, nodes, attempt, doc, allowBus);
+        if (!laid) continue;
+        var r2 = runLayout(laid, attempt === 2 && allowBus);
+        relayout = attempt;
+        if (r2) res = r2;
+        if (r2 && r2.ok) break;
+      }
+    }
+
+    if (!res) {
+      res = {
+        placed: [], errs: ['布局失败'],
+        wr: { ok: false, error: '布局失败', nodes: [] },
+        an: { level: 'error', issues: [] }, terms: 0, ok: false
+      };
+    }
 
     var wiring = !nodes.length ? '没有给 nodes'
-      : (wr.ok ? '全部连通' : (wr.failed || 0) + '/' + (wr.total || 0) + ' 个节点没连好');
+      : (res.wr.ok ? '全部连通' : (res.wr.failed || 0) + '/' + (res.wr.total || 0) + ' 个节点没连好');
 
     var errorText;
-    if (errs.length) errorText = '放置失败：' + errs.join('；');
-    else if (!wr.ok) errorText = '连线失败：' + (wr.error || wiring);
-    else if (an.level === 'error') {
-      errorText = '电气检查发现错误：' + an.issues.filter(function (x) {
+    if (res.errs.length) errorText = '放置失败：' + res.errs.join('；');
+    else if (!res.wr.ok) errorText = '连线失败：' + (res.wr.error || wiring);
+    else if (res.an.level === 'error') {
+      errorText = '电气检查发现错误：' + res.an.issues.filter(function (x) {
         return x.level === 'error';
       }).slice(0, 2).map(function (x) { return x.msg; }).join('；');
     }
+    if (!res.ok && relayout) {
+      errorText = (errorText || '布局失败') + '（已尝试重排 ' + relayout + ' 次）';
+    }
 
     var rolledBack = false;
-    if (!ok && plan.rollback !== false) {
+    if (!res.ok && plan.rollback !== false) {
       restoreDoc(doc, snap);
       rolledBack = true;
     }
 
     return {
-      ok: ok,
-      placed: placed.length,
-      components: placed.join(','),
-      placeErrors: errs.length ? errs : undefined,
+      ok: res.ok,
+      placed: res.placed.length,
+      components: res.placed.join(','),
+      placeErrors: res.errs.length ? res.errs : undefined,
       wiring: wiring,
       error: errorText,
-      nodes: wr.nodes,
-      level: an.level,
-      issues: an.issues.slice(0, 6),
-      terminalsPlaced: termsPlaced,
+      nodes: res.wr.nodes,
+      level: res.an.level,
+      issues: res.an.issues.slice(0, 6),
+      terminalsPlaced: res.terms,
+      relayout: relayout,
+      relayoutFrom: relayoutFrom,
       rolledBack: rolledBack
     };
   };

@@ -618,6 +618,55 @@ check('draw_plan：母线引出线绕开同列引脚', function () {
   assert(doc.wires.some(function (w) { return w.pts.length >= 4; }), '没有侧向引出线');
 });
 
+check('draw_plan：同列短路自动重排（relayout=1）', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'btnNo', key: 'SF1', branch: 1 },
+      { type: 'btnNc', key: 'SF2', branch: 1 },
+      { type: 'coil', key: 'QA1', branch: 1 },
+      { type: 'btnNo', key: 'SF3', branch: 1 },
+      { type: 'coil', key: 'QA2', branch: 1 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['SF1#0', 'SF3#0'] },
+      { name: 'A', pins: ['SF1#1', 'SF2#0'] },
+      { name: 'B', pins: ['SF2#1', 'coil:QA1#0'] },
+      { name: 'N', pins: ['coil:QA1#1', 'coil:QA2#1'] },
+      { name: 'C', pins: ['SF3#1', 'coil:QA2#0'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(r.relayout === 1, 'relayout=' + r.relayout);
+  assert(r.relayoutFrom === 'short', 'relayoutFrom=' + r.relayoutFrom);
+  assert(r.rolledBack === false, '重排成功不应回滚');
+  assert(r.level !== 'error', 'level=' + r.level);
+  assert(r.wiring === '全部连通', r.wiring);
+  assert(doc.comps.length === 5, '元件数 ' + doc.comps.length);
+  assert(doc.comps.map(function (c) { return c.key; }).join(',') === 'SF1,SF2,QA1,SF3,QA2',
+    '重排不该改代号');
+});
+
+check('draw_plan：重排两次仍失败时整图回滚', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'no', key: 'QA9', branch: 1 },
+      { type: 'coil', key: 'QA1', branch: 2 }
+    ],
+    nodes: [
+      { name: 'L', pins: ['no:QA9#0'] },
+      { name: 'A', pins: ['no:QA9#1', 'coil:QA1#0'] },
+      { name: 'N', pins: ['coil:QA1#1'] }
+    ]
+  });
+  assert(r.ok === false, JSON.stringify(r));
+  assert(r.relayout === 2, 'relayout=' + r.relayout);
+  assert(r.relayoutFrom === 'electrical', 'relayoutFrom=' + r.relayoutFrom);
+  assert(r.rolledBack === true, '最终失败必须回滚');
+  assert(doc.comps.length === 0, '回滚后不应留下残图：' + doc.comps.length);
+});
+
 check('draw_plan：没给 nodes 时文案不含 undefined', function () {
   const doc = M.blank(760, 500);
   const r = A.drawPlan(doc, {
