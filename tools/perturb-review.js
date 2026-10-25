@@ -76,6 +76,7 @@ const KNOWN = [
   ['画个正反转，用2个接触器',          { comps: 8 },               '量词生成多余元件（已裁定放弃）'],
   ['画个正反转，带QA1和QA2',          { nc: 2 },                  '代号导致回退模型（安全）'],
   ['__ATLAS_TERM_NAME__',            { fn: 'atlasTermName' },    '图集端子缺 name（范围外）'],
+  ['__CIRCUIT_OVERMATCH__',          { fn: 'circuitOvermatch' },  '离线路由过度匹配：要电路却只放元件（P0 待修）'],
 ];
 
 const PROBES = {
@@ -226,8 +227,31 @@ const PROBES = {
       detail: `level=${an.level} error=${errs.length}${keyless ? ' ← FR1 被误判缺线圈' : ''}`
     };
   },
-  coilMissing() {
-    // 反向保护：放宽「主电路免检线圈」之后，真漏画线圈不能跟着被放过。
+  circuitOvermatch() {
+    // 用户描述的是「电路」，离线路由却只识别出几个元件名词，逐个 place。
+    // 结果是画布上有 1~2 个孤立元件 —— 比画错更糟：用户以为画了。
+    // 正确行为：这类句子应该 ok:false 交给模型，或者真正画出回路。
+    const cases = [
+      ['给我画一个电机正转，带启动停止，加个运行指示灯', 4],
+      ['画一个带急停按钮的控制回路，急停要能切断整个回路', 3],
+      ['帮我画一个电机过载保护回路，热继电器动作后要能报警', 3]
+    ];
+    const bad = [];
+    const detail = [];
+    cases.forEach(([q, min]) => {
+      const d = M.blank();
+      const res = C.interpretV2(q, d);
+      if (res === null) { detail.push('回退模型'); return; }   // 交模型是合格的
+      if (d.comps.length < min) {
+        bad.push(`${d.comps.length}元件 < ${min}`);
+        detail.push('画不全 ' + d.comps.length);
+      } else {
+        detail.push('ok ' + d.comps.length);
+      }
+    });
+    return { ok: !bad.length, detail: detail.join(' / ') };
+  },
+  coilMissing() {    // 反向保护：放宽「主电路免检线圈」之后，真漏画线圈不能跟着被放过。
     // 图里既有线圈又有主元件时，某触点代号找不到线圈仍必须报 error。
     const d = M.blank();
     const r = A.drawPlan(d, {

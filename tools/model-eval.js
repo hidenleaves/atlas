@@ -72,6 +72,8 @@ const FAKE_POLICY = arg('fake') || 'good';
 const API_KEY = arg('key') || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || '';
 const VERBOSE = has('verbose');
 const ONLY = arg('only');
+// 默认复刻产品分派（离线优先）；--no-route 只量模型本身
+const NO_ROUTE = has('no-route');
 
 if (!MODE) {
   console.log('用法：');
@@ -410,6 +412,19 @@ global.fetch = function (url, opts) {
    跑一条用例
    ============================================================ */
 
+// 复刻 chat.js submit() 的分派：离线优先，接不住才调模型。
+// 这是产品实际走的路径，评测必须照着来，否则量到的是另一条路。
+function dispatch(text, doc) {
+  if (!NO_ROUTE && global.PLCChat.interpretV2) {
+    const local = global.PLCChat.interpretV2(text, doc);
+    if (local) {
+      local.via = 'rule';
+      return Promise.resolve(local);
+    }
+  }
+  return C.callModel(text, doc, null);
+}
+
 function runCase(c) {
   const doc = M.blank(760, 500);
   // 回放要按录制里的全局顺序消费请求（一次 live 是从头跑到尾的），
@@ -424,7 +439,12 @@ function runCase(c) {
   // 不清空的话第 N 条用例会看到前几条的问答，测的就不是单指令了，
   // 而且每次运行的历史不同 → 通过率大幅漂移。评测必须隔离。
   if (C.resetConversation) C.resetConversation();
-  return C.callModel(c.text, doc, null).then(res => {
+
+  // 产品真实分派（chat.js 的 submit）：先走离线路由，接不住才交给模型。
+  // 原来评测直接调 callModel，等于只测了「模型路径」，而真实用户
+  // 有相当一部分请求根本不会走到模型 —— 测的不是产品。
+  // --no-route 可以绕过离线层，只量模型本身。
+  return dispatch(c.text, doc).then(res => {
     const ms = Date.now() - t0;
     const fresh = C.getDebug();
     const calls = fresh.filter(l => /\[tool\]/.test(l)).map(l => {
@@ -547,9 +567,10 @@ async function main() {
   }
 
   const list = ONLY ? CASES.filter(c => c.id === ONLY) : CASES;
-  console.log(`模式：${MODE}${MODE === 'fake' ? '（' + FAKE_POLICY + '）' : ''}   用例：${list.length} 条\n`);
-  console.log('ID    组          元件 线 端 工具调用(draw/place/fail)  level 判定');
-  console.log('─'.repeat(84));
+  console.log(`模式：${MODE}${MODE === 'fake' ? '（' + FAKE_POLICY + '）' : ''}` +
+    `${NO_ROUTE ? '  只量模型（跳过离线路由）' : '  离线优先（复刻产品分派）'}   用例：${list.length} 条\n`);
+  console.log('ID    组          元件 线 端 来源 工具调用(draw/place/fail)  level 判定');
+  console.log('─'.repeat(92));
 
   const results = [];
   for (const c of list) {
@@ -565,12 +586,14 @@ async function main() {
     results.push(r);
 
     const toolStr = `${r.calls.length}(${r.drawCalls}/${r.placeCalls}/${r.failCalls})`;
+    const src = r.via === 'rule' ? '离线' : r.via === 'model' ? '模型' : '  ? ';
     console.log(
       r.id.padEnd(5),
       String(c.group).padEnd(11),
       String(r.comps).padStart(4),
       String(r.wires).padStart(3),
       String(r.terms).padStart(2),
+      src.padStart(5),
       toolStr.padStart(24),
       String(r.level).padStart(6),
       r.pass ? '✓' : '✗ ' + fails[0]
