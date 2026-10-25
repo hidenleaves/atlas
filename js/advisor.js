@@ -282,13 +282,31 @@
       if (COILISH[c.type]) coils[k] = (coils[k] || 0) + 1;
       if (NEED_COIL[c.type] && !isOperator(k)) contacts[k] = (contacts[k] || 0) + 1;
     });
-    Object.keys(contacts).forEach(function (k) {
-      if (!coils[k]) {
-        push('error', 'keyless',
-          '触点是 ' + k + '，但图上没有 ' + k + ' 的线圈，按下不会动作',
-          null);
-      }
+    // 先判断这是不是“主电路单独成图”：图上有电机/主触点/主电路保护，
+    // 但整张图一个线圈都没有。星三角、正反转主电路都是这么画的，
+    // 线圈在另一张控制图上，不能把“本图没有线圈”判成漏画。
+    //
+    // 边界很重要：只有“一个线圈都没有”才跳过。一旦图里有线圈，
+    // 就说明这是控制图或混合图，某个触点找不到同代号线圈仍然是
+    // 真漏画，必须保持 error。不要把这条规则简化成“有主元件就放过”。
+    var hasMainPart = comps.some(function (c) {
+      return c.type === 'motor' || c.type === 'contactor3' ||
+             c.type === 'fuse3' || c.type === 'switch3';
     });
+    var mainOnly = hasMainPart && Object.keys(coils).length === 0;
+
+    if (mainOnly) {
+      push('info', 'coil-offsheet',
+        '这是一张主电路图，接触器线圈不在本图（在控制回路那张）', null);
+    } else {
+      Object.keys(contacts).forEach(function (k) {
+        if (!coils[k]) {
+          push('error', 'keyless',
+            '触点是 ' + k + '，但图上没有 ' + k + ' 的线圈，按下不会动作',
+            null);
+        }
+      });
+    }
     Object.keys(coils).forEach(function (k) {
       if (!contacts[k]) {
         push('info', 'nocontact',

@@ -884,6 +884,49 @@ check('claim 兜底：真的改了画布 / 没有声称 → 不改回复', funct
   assert(C.guardClaim(null) === null, 'null 应安全');
 });
 
+/* ---------------- advisor：主电路单独成图 ---------------- */
+
+check('advisor：主电路单独绘制不误报线圈（__MAIN_ONLY__）', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'contactor3', key: 'QA1', branch: 1 },
+      { type: 'motor', key: 'M1', branch: 3 }
+    ],
+    nodes: [
+      { name: 'L1', pins: ['contactor3:QA1#0'] },
+      { name: 'M', pins: ['contactor3:QA1#1', 'motor:M1#0'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(doc.comps.length === 2, '元件数');
+  const an = A.analyze(doc);
+  assert(!an.issues.some(function (i) { return i.level === 'error'; }), JSON.stringify(an.issues));
+  assert(an.issues.some(function (i) { return i.code === 'coil-offsheet'; }),
+    '缺少“线圈不在本图”的说明');
+});
+
+check('advisor：有主电路元件也有线圈时，触点缺线圈仍报 error', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'contactor3', { key: 'QA1' });
+  A.place(doc, 'motor', { key: 'M1' });
+  A.place(doc, 'coil', { key: 'QA2' });
+  const an = A.analyze(doc);
+  assert(an.issues.some(function (i) {
+    return i.code === 'keyless' && /QA1/.test(i.msg);
+  }), JSON.stringify(an.issues));
+});
+
+check('advisor：控制回路单独成图，触点缺线圈仍报 error', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'coil', { key: 'QA1' });
+  A.place(doc, 'nc', { key: 'QA2' });
+  const an = A.analyze(doc);
+  assert(an.issues.some(function (i) {
+    return i.code === 'keyless' && /QA2/.test(i.msg);
+  }), JSON.stringify(an.issues));
+});
+
 console.log('');
 console.log('通过 ' + pass + ' / ' + (pass + fail) + '，失败 ' + fail);
 console.log('');
