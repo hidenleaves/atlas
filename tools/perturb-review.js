@@ -204,20 +204,27 @@ const PROBES = {
     };
   },
   thermalContact() {
-    // 热继电器触点不需要同名线圈（它由双金属片驱动，不是电磁铁）
+    // 热继电器触点不需要同名线圈（它由双金属片驱动，不是电磁铁）。
+    // 注意必须同时放 thermal 本体和 nc:FR1 触点 —— 只放本体测不到这条规则，
+    // 第一版探针就是这么漏掉 B06 根因的。
     const d = M.blank();
     A.place(d, 'btnNo', { key: 'SF1' });
     A.place(d, 'thermal', { key: 'FR1' });
+    A.place(d, 'nc', { key: 'FR1' });
     A.place(d, 'coil', { key: 'QA1', near: 'SF1' });
     A.wireNodes(d, [
       { name: 'L', pins: ['SF1#0'] },
-      { name: 'A', pins: ['SF1#1', 'thermal:FR1#0'] },
-      { name: 'B', pins: ['thermal:FR1#1', 'coil:QA1#0'] },
+      { name: 'A', pins: ['SF1#1', 'nc:FR1#0'] },
+      { name: 'B', pins: ['nc:FR1#1', 'coil:QA1#0'] },
       { name: 'N', pins: ['coil:QA1#1'] }
     ]);
     const an = A.analyze(d);
     const errs = an.issues.filter(x => x.level === 'error');
-    return { ok: errs.length === 0, detail: `level=${an.level} error=${errs.length}` };
+    const keyless = errs.some(x => /FR1/.test(x.msg) && /线圈/.test(x.msg));
+    return {
+      ok: errs.length === 0,
+      detail: `level=${an.level} error=${errs.length}${keyless ? ' ← FR1 被误判缺线圈' : ''}`
+    };
   },
   coilMissing() {
     // 反向保护：放宽「主电路免检线圈」之后，真漏画线圈不能跟着被放过。
