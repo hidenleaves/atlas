@@ -111,7 +111,8 @@ docs/optimization-log.md   优化迭代日志
 ## 开发与测试
 
 ```bash
-npm test                 # route + api + prompt 三套回归
+npm test                 # 全部：规则回归 + 独立审查 + 评测 harness 自检
+npm run test:rules       # 只跑规则层：route + api + template + prompt
 npm run prompt           # 从 js/prompt.js 生成 提示词.md
 npm run prompt:check     # 校验 提示词.md 没有过期
 python tools/qet-import.py   # 重新生成符号库（需要网络）
@@ -119,8 +120,49 @@ python tools/qet-import.py   # 重新生成符号库（需要网络）
 
 CI 在 `.github/workflows/test.yml`：push 到 main / PR / 手动触发，Node 22，跑单元测试并检查提示词文档一致性。
 
-当前回归规模：route 85、route-fuzz 128、api 62、template 9、prompt 37。
+当前回归规模：route 85、route-fuzz 128、api 62、template 9、prompt 37，
+外加 `tools/perturb-review.js` 34 条必修审查、`model-eval --selftest` 7 项判别力断言。
 优化迭代记录见 `docs/optimization-log.md`，变更汇总见 `CHANGELOG.md`。
+
+## 真实模型评测
+
+上面的测试全是**规则层**的：它们验证 `route()` 和 `api.js` 的确定性行为，
+但完全不知道「DeepSeek 拿到 `draw_plan` 之后到底画成什么样」。
+`tools/model-eval.js` 补这一块——它跑的是 `js/chat.js` 里**线上同一段 `callModel`**，
+只把 `fetch` 换成可控实现，所以结果对线上有代表性。
+
+```bash
+# 1. 不需要 key，先确认 harness 自己能区分好坏模型
+node tools/model-eval.js --selftest
+
+# 2. 真打模型（27 条开放式指令）
+set DEEPSEEK_API_KEY=sk-xxx
+node tools/model-eval.js --live
+# 或：node tools/model-eval.js --live --key sk-xxx --model deepseek-chat
+
+# 3. 离线复现某次结果，不需要 key、不发网络请求
+node tools/model-eval.js --replay tools/eval-recordings/rec-xxx.json
+```
+
+**评测集**共 27 条，分 6 组，每组针对一种失效模式：
+
+| 组 | 测什么 | 例子 |
+|---|---|---|
+| A 内置模板 | 有模板时不该乱交给模型 | 画一个起保停 |
+| B 只能模型 | 没模板时能否一次画完整，而不是散着放元件 | 画一个星三角启动的主电路 |
+| C 否定 | 说了不要却画了 | 画个正反转，但是不要自锁 |
+| D 口语 | 错别字、省略、口语化 | 那个…正反转，你懂的，画一下 |
+| E 后续操作 | 上下文能否接得上 | 画个正反转，把热继电器补上 |
+| F 边界 | 该说不会，而不是乱画 | 帮我算一下这个电机的接触器选型 |
+
+每次输出四个关键指标：**通过率**、**散图数**（有元件却一根线都没有）、
+**未用 draw 工具数**（靠 `place_component` 拼图）、**自愈数**（先失败后改对）。
+
+`--selftest` 用三种脚本化假模型断言 harness 有判别力（理想模型 > 先错后改 > 只放不连线），
+所以即使没配 key，CI 也能保证这个工具本身没坏。
+
+结果存 `tools/eval-results/`，录制存 `tools/eval-recordings/`，两者默认不入库
+（录制含模型原始输出和 token 计费信息）。要把某次基线固化成证据，可 `git add -f` 指定文件。
 
 ## 符号来源与许可
 

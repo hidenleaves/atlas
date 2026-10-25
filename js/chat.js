@@ -1295,6 +1295,15 @@
     mount: mount,
     interpret: interpret,
     interpretV2: interpretV2,
+    // 评测用：暴露真实模型链路（工具循环 + 收尾判定），
+    // 让 tools/model-eval.js 跑的是线上同一段代码，而不是复刻品。
+    callModel: callModel,
+    runTool: runTool,
+    // 评测用：按快照取日志，避免跨用例互相污染
+    getDebug: function () { return DBG.slice(); },
+    clearDebug: function () { DBG = []; },
+    systemPrompt: SYS,
+    snapshot: snapshot,
     buildJog: buildJog,
     buildSelfLock: buildSelfLock,
     buildReverse: buildReverse,

@@ -4,9 +4,13 @@
   "private": true,
   "description": "PLC 电气图纸图集与可编辑画板（零依赖静态站）",
   "scripts": {
-    "test": "node tools/route-test.js && node tools/route-fuzz.js && node tools/api-test.js && node tools/template-test.js && node tools/prompt-test.js",
+    "test": "npm run test:rules && node tools/perturb-review.js && node tools/model-eval.js --selftest",
+    "test:rules": "node tools/route-test.js && node tools/route-fuzz.js && node tools/api-test.js && node tools/template-test.js && node tools/prompt-test.js",
     "prompt": "node tools/export-prompt.js",
-    "prompt:check": "node tools/export-prompt.js && git diff --exit-code 提示词.md"
+    "prompt:check": "node tools/export-prompt.js && git diff --exit-code 提示词.md",
+    "eval:selftest": "node tools/model-eval.js --selftest",
+    "eval": "node tools/model-eval.js --live",
+    "eval:replay": "node tools/model-eval.js --replay"
   },
   "engines": {
     "node": ">=18"

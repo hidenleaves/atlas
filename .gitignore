@@ -1,6 +1,13 @@
 # 符号库下载缓存（可由 python tools/qet-import.py 重新生成）
 tools/.cache/
 
+# 模型评测的临时产物（每次跑都重新生成，不入库）
+tools/eval-results/
+
+# 录制文件默认不入库：可能含模型原始输出和 token 计费信息。
+# 但如果要把某次基线固化成可复现证据，可以 git add -f 指定文件。
+tools/eval-recordings/
+
 # 临时测试页
 _t*.html
 
