@@ -109,8 +109,9 @@ if (MODE === 'selftest') {
   const g = runOne('good');
   const s = runOne('sloppy');
   const l = runOne('lazy');
+  const d = runOne('dsml');
 
-  const rows = [['good', g], ['sloppy', s], ['lazy', l]];
+  const rows = [['good', g], ['sloppy', s], ['lazy', l], ['dsml', d]];
   console.log('策略     通过率   散图   未用draw   自愈');
   console.log('─'.repeat(46));
   rows.forEach(([n, x]) => console.log(
@@ -128,7 +129,11 @@ if (MODE === 'selftest') {
     ['lazy 全部是散图', l.scatter === l.total],
     ['lazy 完全没用 draw 工具', l.noDrawCall === l.total],
     ['sloppy 识别出自愈', s.recovered > 0],
-    ['good 全部走 draw 工具', g.noDrawCall === 0]
+    ['good 全部走 draw 工具', g.noDrawCall === 0],
+    // DSML 故障注入：模型把工具调用写成文本时必须能救回来，
+    // 至少要有产出、要有工具调用记录（救不回来就是 0/0）。
+    ['dsml 文本能被救成工具调用', d.noDrawCall === 0],
+    ['dsml 有实际产出', d.pass > 0]
   ];
   console.log('');
   let bad = 0;
@@ -191,7 +196,7 @@ const CASES = [
   { id: 'F01', group: 'F 边界', text: '帮我算一下这个电机的接触器选型', expect: { noDraw: true, engine: 'either' } },
   { id: 'F02', group: 'F 边界', text: '今天天气怎么样', expect: { noDraw: true, engine: 'either' } },
   { id: 'F03', group: 'F 边界', text: '把这台设备的 PLC 程序写出来', expect: { noDraw: true, engine: 'either' } },
-  { id: 'F04', group: 'F 边界', text: '画一个能自动检测故障并报警的智能系统', expect: { comps: 'any', engine: 'either' } },
+  { id: 'F04', group: 'F 边界', text: '画一个能自动检测故障并报警的智能系统', expect: { allowEmpty: true, engine: 'either' } },
 ];
 
 /* ============================================================
@@ -298,6 +303,34 @@ function fakeModel(messages, tools) {
     return sseResponse([chunkOf({ content: '放好了几个元件。' }), chunkOf({ usage: { total_tokens: 20 } })]);
   }
 
+  if (FAKE_POLICY === 'dsml') {
+    // 专门模拟真实出现过的故障：模型不走 function calling 通道，
+    // 而是把工具调用写成 DSML 文本。用来验证 salvageDsml 能把它们救回来。
+    if (turn === 0) {
+      const plan = {
+        clear: true,
+        components: [{ type: 'btnNo', key: 'SF1', branch: 1 }, { type: 'btnNc', key: 'SF2', branch: 2 },
+          { type: 'coil', key: 'QA1', branch: 3 }],
+        nodes: [{ name: 'L', pins: ['SF1#0'] }, { name: 'A', pins: ['SF1#1', 'SF2#0'] },
+          { name: 'B', pins: ['SF2#1', 'QA1#0'] }, { name: 'N', pins: ['QA1#1'] }],
+        terminals: [{ name: 'L', node: 'L' }, { name: 'N', node: 'N' }]
+      };
+      const P = '<\uff5c\uff5cDSML\uff5c\uff5c parameter';
+      const E = '</\uff5c\uff5cDSML\uff5c\uff5c parameter>';
+      const dsml =
+        '<\uff5c\uff5cDSML\uff5c\uff5c calls>\n' +
+        '<\uff5c\uff5cDSML\uff5c\uff5c invoke name="draw_plan">\n' +
+        P + ' name="clear" string="false">true' + E + '\n' +
+        P + ' name="components" string="false">' + JSON.stringify(plan.components) + E + '\n' +
+        P + ' name="nodes" string="false">' + JSON.stringify(plan.nodes) + E + '\n' +
+        P + ' name="terminals" string="false">' + JSON.stringify(plan.terminals) + E + '\n' +
+        '</\uff5c\uff5cDSML\uff5c\uff5c invoke>\n' +
+        '</\uff5c\uff5cDSML\uff5c\uff5c calls>';
+      return sseResponse([chunkOf({ content: dsml }), chunkOf({ usage: { total_tokens: 220 } })]);
+    }
+    return sseResponse([chunkOf({ content: '画好了。' }), chunkOf({ usage: { total_tokens: 20 } })]);
+  }
+
   // sloppy：先画错（短路），收到错误后自愈
   if (turn === 0) {
     const bad = {
@@ -367,7 +400,9 @@ global.fetch = function (url, opts) {
 
 function runCase(c) {
   const doc = M.blank(760, 500);
-  RECORD_IDX = 0;
+  // 回放要按录制里的全局顺序消费请求（一次 live 是从头跑到尾的），
+  // 每条用例都重置会让大家拿到同一批数据。live/fake 不需要这个游标。
+  if (MODE !== 'replay') RECORD_IDX = 0;
 
   const t0 = Date.now();
   // DBG 是模块内累积的数组，且超过 160 条会被截断。
@@ -416,6 +451,15 @@ function judge(r, c) {
     if (r.comps > 0) fails.push(`不该画却画了 ${r.comps} 个元件`);
     return fails;
   }
+
+  // 底线：除了 F 组「不该画 / 可画可不画」，任何用例都必须真的产出东西。
+  // 否则「空画布」会骗过 noMax/ncMax 这类上限判定，造成假通过
+  // （C 组早期就是这样：什么都没画，反而"没有多余的触点"）。
+  if (!e.allowEmpty && !(r.comps >= 2)) {
+    fails.push(`没有产出：元件 ${r.comps}（空画布不能算通过）`);
+    if (!r.reply) fails.push('连回复都没有');
+  }
+
   if (e.compsMin != null && r.comps < e.compsMin) fails.push(`元件 ${r.comps} < ${e.compsMin}`);
   if (e.noMax != null && r.no > e.noMax) fails.push(`常开触点 ${r.no} > ${e.noMax}（说了不要自锁）`);
   if (e.ncMax != null && r.nc > e.ncMax) fails.push(`常闭触点 ${r.nc} > ${e.ncMax}（说了不加互锁）`);
@@ -461,6 +505,15 @@ async function main() {
       endpoint: 'https://fake.local/v1/chat/completions',
       model: 'fake-' + FAKE_POLICY,
       apiKey: 'fake-key'
+    });
+  }
+  if (MODE === 'replay') {
+    // 回放同样要过 callModel 的配置检查，否则它会静默返回 null，
+    // 整轮评测变成「什么都没做」，而空画布又能骗过一部分判定 —— 假通过。
+    store['plc-atlas.llm.v1'] = JSON.stringify({
+      endpoint: 'https://replay.local/v1/chat/completions',
+      model: 'replay',
+      apiKey: 'replay-key'
     });
   }
 

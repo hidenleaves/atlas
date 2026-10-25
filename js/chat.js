@@ -706,12 +706,72 @@
         });
       }
       return pump();
+    }).then(salvageDsml);
+  }
+
+  /* ---------- DSML 补救 ----------
+     DeepSeek 偶尔不走 function calling 通道，而是把工具调用写成文本标记：
+       <｜｜DSML｜｜ calls>
+       <｜｜DSML｜｜ invoke name="place_component">
+       <｜｜DSML｜｜ parameter name="type" string="true">lamp</｜｜DSML｜｜ parameter>
+       ...
+     实测在真实模型评测里 55 次请求有 5 次这么干（约 9%），
+     原来会把这坨标记原样当成回复显示给用户，工具一次都没执行，
+     图自然是空的。这里在流结束后兜一次：解析成真正的 toolCalls。 */
+
+  function coerceArg(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (/^[[{]/.test(s)) { try { return JSON.parse(s); } catch (e) { return s; } }
+    if (s === 'true') return true;
+    if (s === 'false') return false;
+    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    return s;
+  }
+
+  function parseDsml(text) {
+    var out = [];
+    // 全角竖线 ｜ 和普通 | 都要认；标签名统一用 [^>]*? 兜住前缀
+    var reInvoke = /invoke\s+name\s*=\s*["']([^"']+)["']\s*>([\s\S]*?)<\/[^>]*?invoke\s*>/g;
+    var mi;
+    while ((mi = reInvoke.exec(text))) {
+      var name = mi[1];
+      var body = mi[2];
+      var args = {};
+      var reParam = /parameter\s+name\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/[^>]*?parameter\s*>/g;
+      var mp;
+      while ((mp = reParam.exec(body))) {
+        args[mp[1]] = coerceArg(mp[2]);
+      }
+      out.push({
+        id: 'dsml_' + out.length,
+        type: 'function',
+        function: { name: name, arguments: JSON.stringify(args) }
+      });
+    }
+    return out;
+  }
+
+  function salvageDsml(acc) {
+    if (!acc) return acc;
+    var hasStd = (acc.toolCalls || []).some(function (t) {
+      return t && t.function && t.function.name;
     });
+    if (hasStd) return acc;
+    var txt = acc.content || '';
+    if (txt.indexOf('invoke') < 0) return acc;
+    var calls = parseDsml(txt);
+    if (!calls.length) return acc;
+    acc.toolCalls = calls;
+    // 把标记从正文里剥掉，只留下模型真正说的话
+    acc.content = txt.replace(/<[^>]*?DSML[^>]*>[\s\S]*?<\/[^>]*?calls\s*>/g, '')
+      .replace(/<[^>]*?invoke[\s\S]*$/g, '')
+      .trim();
+    acc.salvaged = true;
+    return acc;
   }
 
   // 把一片 SSE 数据并进累积器
-  function absorb(j, acc, onText) {
-    if (j.usage) acc.usage = j.usage;
+  function absorb(j, acc, onText) {    if (j.usage) acc.usage = j.usage;
     var ch = j.choices && j.choices[0];
     if (!ch) return;
     var d = ch.delta || {};
