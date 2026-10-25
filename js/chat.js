@@ -906,6 +906,23 @@
   // 多轮对话历史（不含 system），让"再往右一点""把它删掉"能接得上
   var conv = [];
 
+  // 回复里声称"画好了"但本轮没有任何工具成功 → 不允许蒙混，明确说没画出来。
+  // 只做文本层兜底，不改画布；"还没画好/无法绘制"这类否认句不误伤。
+  function claimedDrawn(text) {
+    var s = String(text || '');
+    var positive = /(画好了|已画好|已经画好|画完了|已画完|绘制完成|绘制好了|电路已画|图已画|搞定了|完成了)/.test(s);
+    var denied = /(没|未能|无法|没有|不能|尚未|还没)[^。；;\n]{0,10}(画好|画完|绘制|完成)/.test(s);
+    var question = /(画好了吗|画完了吗|要画吗|需要画|是否画)/.test(s);
+    return positive && !denied && !question;
+  }
+
+  function guardClaim(res) {
+    if (res && !res.changed && claimedDrawn(res.reply)) {
+      res.reply = '我没能画出来：本轮没有任何元件或导线落到画布上。\n（模型原话：' + res.reply + '）';
+    }
+    return res;
+  }
+
   function callModel(text, doc, onText) {
     var c = cfg();
     if (!c.endpoint && !c.apiKey) return Promise.resolve(null);
@@ -1006,6 +1023,8 @@
     }
 
     return step(0).then(function (res) {
+      // 声称画好但画布没动 → 换成明确失败，避免"嘴上画完"
+      res = guardClaim(res);
       // 记进历史，下一句"再往右一点""把它删掉"才接得上
       if (res && res.reply) {
         conv.push({ role: 'user', content: text });
@@ -1359,6 +1378,8 @@
     // 让 tools/model-eval.js 跑的是线上同一段代码，而不是复刻品。
     callModel: callModel,
     runTool: runTool,
+    claimedDrawn: claimedDrawn,
+    guardClaim: guardClaim,
     // 评测用：按快照取日志，避免跨用例互相污染
     getDebug: function () { return DBG.slice(); },
     clearDebug: function () { DBG = []; },

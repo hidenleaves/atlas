@@ -120,8 +120,8 @@ python tools/qet-import.py   # 重新生成符号库（需要网络）
 
 CI 在 `.github/workflows/test.yml`：push 到 main / PR / 手动触发，Node 22，跑单元测试并检查提示词文档一致性。
 
-当前回归规模：route 85、route-fuzz 128、api 62、template 9、prompt 37，
-外加 `tools/perturb-review.js` 34 条必修审查、`model-eval --selftest` 7 项判别力断言。
+当前回归规模：route 85、route-fuzz 128、api 69、template 9、prompt 37、chat-claim 5，
+外加 `tools/perturb-review.js` 34 条必修审查、`model-eval --selftest` 9 项判别力断言。
 优化迭代记录见 `docs/optimization-log.md`，变更汇总见 `CHANGELOG.md`。
 
 ## 真实模型评测

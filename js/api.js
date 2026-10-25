@@ -31,9 +31,18 @@
     return [[tx, fy], [tx, ty]];
   }
 
+  // 拆出 "@n" 序号（从 1 开始），用于同一个 type:key 的第 n 个
+  function splitOcc(ref) {
+    var s = String(ref == null ? '' : ref).trim();
+    var m = s.match(/^(.*)@(\d+)$/);
+    if (!m) return { base: s, occ: null };
+    return { base: m[1], occ: parseInt(m[2], 10) };
+  }
+
   function findRef(doc, ref) {
     if (!doc || ref == null) return null;
-    var s = String(ref).trim();
+    var sp = splitOcc(ref);
+    var s = sp.base, occ = sp.occ;
 
     // type:key 形式 —— 同名元件必须能区分（线圈 QA1 与自锁触点 QA1 是两回事）
     var tm = s.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/);
@@ -41,12 +50,14 @@
       var hit = doc.comps.filter(function (c) {
         return c.type === tm[1] && (c.key || '') === tm[2];
       });
+      if (occ != null) return hit[occ - 1] || null;
       if (hit.length) return hit[0];
     }
 
     var byId = doc.comps.filter(function (c) { return c.id === s; })[0];
     if (byId) return byId;
     var byKey = doc.comps.filter(function (c) { return (c.key || '') === s; });
+    if (occ != null) return byKey[occ - 1] || null;
     if (byKey.length === 1) return byKey[0];
     // 同名多个（如 QA1 的线圈 + 3 个主触点）优先返回线圈类
     if (byKey.length > 1) {
@@ -172,11 +183,16 @@
   /* ---------------- 引脚解析 ---------------- */
 
   // ref 形式：'QA1'（默认上脚） | 'QA1#1'（下脚） | 'QA1#0' | 内部 id
+  // 同 type+key 有多个时用 @n 指定第几个（从 1 开始）：'nc:QA3@2#0'
   function parsePin(doc, ref) {
     var s = String(ref || '').trim();
+    var occ = null;
+    var mo = s.match(/@(\d+)$/);
+    if (mo) { occ = parseInt(mo[1], 10); s = s.slice(0, mo.index); }
     var idx = null;
     var m = s.match(/^(.*)#(\d+)$/);
     if (m) { s = m[1]; idx = parseInt(m[2], 10); }
+    if (occ != null) s += '@' + occ;
     var c = findRef(doc, s);
     if (!c) return { error: '找不到元件 ' + s };
     var ps = pinsOf(c);
@@ -184,6 +200,19 @@
     var i = idx == null ? 0 : idx;
     if (!ps[i]) return { error: s + ' 没有第 ' + (i + 1) + ' 个引脚（共 ' + ps.length + ' 个）' };
     return { comp: c, i: i, pt: ps[i], pins: ps };
+  }
+
+  // 计划列表里有没有 ref（支持 type:key@n / key@n）；不能拿 doc 里的旧同名元件顶替
+  function planHasRef(list, ref) {
+    var sp = splitOcc(ref);
+    var s = sp.base, occ = sp.occ;
+    var tm = s.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/);
+    var hits = tm ? list.filter(function (c) {
+      return c.type === tm[1] && (c.key || '') === tm[2];
+    }) : list.filter(function (c) {
+      return (c.key || '') === s;
+    });
+    return occ != null ? hits.length >= occ : hits.length > 0;
   }
 
   /* ---------------- 连通性 ---------------- */
@@ -605,9 +634,7 @@
     var pending = comps.slice(), out = [];
     function ready(ref) {
       if (useDoc && findRef(doc, ref)) return true;
-      return out.some(function (x) {
-        return x.key === ref || (x.type + ':' + x.key) === ref;
-      });
+      return planHasRef(out, ref);
     }
     while (pending.length) {
       var progress = false;
@@ -630,7 +657,6 @@
     var nodes = Array.isArray(plan.nodes) ? plan.nodes : [];
     var terminals = Array.isArray(plan.terminals) ? plan.terminals : [];
     var errs = [];
-    var seen = {};
 
     if (!Array.isArray(plan.components)) errs.push('components 必须是数组');
     if (plan.nodes != null && !Array.isArray(plan.nodes)) errs.push('nodes 必须是数组');
@@ -645,17 +671,12 @@
     comps.forEach(function (c) {
       if (!c || !c.type) { errs.push('有元件没写 type'); return; }
       if (!M.TYPES[c.type]) { errs.push('没有这种元件：' + c.type); return; }
-      if (c.key) {
-        var k = c.type + ':' + c.key;
-        if (seen[k]) errs.push('重复元件 ' + k + '，请换一个代号');
-        seen[k] = true;
-      }
+      // 同一个 type:key 可以出现多次（星三角里 QA3 有两个常闭），
+      // 用 @n 在 nodes 里区分第几个；这里不再报"重复元件"。
       var ref = c.align || c.near;
       if (ref) {
         var inDoc = !plan.clear && !!findRef(doc, ref);
-        var inPlan = comps.some(function (x) {
-          return x !== c && (x.key === ref || (x.type + ':' + x.key) === ref);
-        });
+        var inPlan = planHasRef(comps.filter(function (x) { return x !== c; }), ref);
         if (!inDoc && !inPlan) {
           errs.push((c.key || c.type) + '：' + (c.align ? 'align' : 'near') + ' 目标 ' + ref + ' 不存在');
         }
@@ -874,8 +895,27 @@
         ok: false,
         error: '代号 ' + s + ' 有 ' + same.length + ' 个元件（' +
           same.map(function (x) { return x.type; }).join('、') +
-          '），请写成 类型:代号，例如 no:QA1 或 coil:QA1'
+          '），请写成 类型:代号；同名同类有多个时再加 @序号，例如 no:QA1 或 no:QA1@2'
       };
+    }
+    // 同 type:key 也允许有多个（星三角 QA3 的多个常闭），
+    // 删除时必须用 @n 说明删第几个，不能替模型猜。
+    var sp = splitOcc(s);
+    var tm = typed ? sp.base.match(/^([a-zA-Z][a-zA-Z0-9]*):(.+)$/) : null;
+    if (tm) {
+      var typedHits = doc.comps.filter(function (x) {
+        return x.type === tm[1] && (x.key || '') === tm[2];
+      });
+      if (sp.occ == null && typedHits.length > 1) {
+        return {
+          ok: false,
+          error: '代号 ' + sp.base + ' 有 ' + typedHits.length +
+            ' 个元件，请写成 ' + sp.base + '@序号 指定删第几个，例如 ' + sp.base + '@2'
+        };
+      }
+      if (sp.occ != null && !typedHits[sp.occ - 1]) {
+        return { ok: false, error: '找不到元件 ' + s };
+      }
     }
     var c = findRef(doc, ref);
     if (!c) return { ok: false, error: '找不到元件 ' + ref };

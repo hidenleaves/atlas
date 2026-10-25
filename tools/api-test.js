@@ -48,6 +48,16 @@ function makeReverse(lock, self) {
   return doc;
 }
 
+// 星三角里同一个 QA3 会有多个常闭/常开触点，按 type+key 重复放置
+function makeDup() {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'btnNo', { key: 'SF1', branch: 1 });
+  A.place(doc, 'nc', { key: 'QA3', branch: 1 });
+  A.place(doc, 'nc', { key: 'QA3', branch: 3 });
+  A.place(doc, 'coil', { key: 'QA2', branch: 1 });
+  return doc;
+}
+
 function coilLoose(doc) {
   return A.analyze(doc).issues.filter(function (it) {
     return /QA[12]/.test(it.msg) && /悬空|只接了一端|还没接线/.test(it.msg);
@@ -415,6 +425,82 @@ check('draw_plan：单引脚节点 + 端子', function () {
     JSON.stringify(A.analyze(doc).issues));
 });
 
+check('draw_plan：同 type:key 可重复，nodes 用 @n 定位', function () {
+  const doc = M.blank(760, 500);
+  const r = A.drawPlan(doc, {
+    components: [
+      { type: 'btnNo', key: 'SF1', branch: 1 },
+      { type: 'nc', key: 'QA3', branch: 1 },
+      { type: 'nc', key: 'QA3', branch: 3 },
+      { type: 'coil', key: 'QA3', branch: 1 }
+    ],
+    nodes: [
+      // QA3 有两个常闭：L 接第二个，A 接第一个，B 把两个下端和线圈上端并起来
+      { name: 'L', pins: ['SF1#0', 'nc:QA3@2#0'] },
+      { name: 'A', pins: ['SF1#1', 'nc:QA3@1#0'] },
+      { name: 'B', pins: ['nc:QA3@1#1', 'nc:QA3@2#1', 'coil:QA3#0'] },
+      { name: 'N', pins: ['coil:QA3#1'] }
+    ]
+  });
+  assert(r.ok === true, JSON.stringify(r));
+  assert(!/重复元件/.test(String(r.error) + String(r.placeErrors)), JSON.stringify(r));
+  const qa3 = doc.comps.filter(function (c) {
+    return c.type === 'nc' && c.key === 'QA3';
+  });
+  assert(qa3.length === 2, 'QA3 常闭数量=' + qa3.length);
+
+  const p1 = A.pins(doc, 'nc:QA3@1#0');
+  const p2 = A.pins(doc, 'nc:QA3@2#0');
+  assert(p1.ok && p2.ok, JSON.stringify(p1) + ' / ' + JSON.stringify(p2));
+  assert(Math.abs(p1.pins[0].x - p2.pins[0].x) > 1,
+    '@1/@2 指向了同一个触点：' + JSON.stringify([p1.pins[0], p2.pins[0]]));
+  assert(!A.analyze(doc).issues.some(function (i) { return i.level === 'error'; }),
+    JSON.stringify(A.analyze(doc).issues));
+});
+
+check('@n：支持 nc:QA3@2#1 与 nc:QA3#1@2 两种写法', function () {
+  const doc = makeDup();
+  const a = A.pins(doc, 'nc:QA3@2#1');
+  const b = A.pins(doc, 'nc:QA3#1@2');
+  assert(a.ok && b.ok, JSON.stringify([a, b]));
+  const pinA = a.pins[1], pinB = b.pins[1];
+  assert(Math.abs(pinA.x - pinB.x) < 0.6 && Math.abs(pinA.y - pinB.y) < 0.6,
+    '两种写法应指向同一引脚：' + JSON.stringify([pinA, pinB]));
+  const first = A.pins(doc, 'nc:QA3@1#1');
+  assert(Math.abs(first.pins[1].x - pinA.x) > 1, '@1 与 @2 下脚不应重合');
+});
+
+check('@n：align 也能引用第二个同名触点', function () {
+  const doc = M.blank(760, 500);
+  A.place(doc, 'nc', { key: 'QA3', branch: 1 });
+  A.place(doc, 'nc', { key: 'QA3', branch: 3 });
+  const second = doc.comps.filter(function (c) {
+    return c.type === 'nc' && c.key === 'QA3';
+  })[1];
+  const r = A.place(doc, 'no', { key: 'QA1', branch: 2, align: 'nc:QA3@2' });
+  assert(r.ok === true, JSON.stringify(r));
+  const no = doc.comps.filter(function (c) { return c.type === 'no' && c.key === 'QA1'; })[0];
+  assert(no && Math.abs(M.anchorOf(no).y - M.anchorOf(second).y) < 0.6,
+    '没有对齐到第二个触点：' + (no && M.anchorOf(no).y) + ' vs ' + M.anchorOf(second).y);
+});
+
+check('remove：同 type:key 多个时拒绝猜，@n 才删指定那个', function () {
+  const doc = makeDup();
+  const typed = A.remove(doc, 'nc:QA3');
+  assert(typed.ok === false, JSON.stringify(typed));
+  assert(/@序号/.test(typed.error || ''), typed.error);
+  const bare = A.remove(doc, 'QA3');
+  assert(bare.ok === false, JSON.stringify(bare));
+  assert(/类型:代号/.test(bare.error || ''), bare.error);
+
+  const r = A.remove(doc, 'nc:QA3@2');
+  assert(r.ok === true, JSON.stringify(r));
+  assert(doc.comps.filter(function (c) { return c.type === 'nc' && c.key === 'QA3'; }).length === 1,
+    '应只删一个 QA3 常闭');
+  assert(A.remove(doc, 'nc:QA3@2').ok === false, '第二个已删，@2 应找不到');
+  assert(A.remove(doc, 'nc:QA3@1').ok === true, '剩下的 @1 应可删');
+});
+
 /* ---------------- draw_plan 原子性 / 排序 ---------------- */
 
 check('draw_plan：无效类型在清空前被拦下，原图不动', function () {
@@ -764,6 +850,38 @@ check('draw_plan：没有 terminals 时返回“无法判断回路闭合”提�
   assert(r.ok === true, JSON.stringify(r));
   assert(r.issues.some(function (i) { return i.code === 'power' && i.level === 'info'; }),
     JSON.stringify(r.issues));
+});
+
+/* ---------------- 模型“嘴上画完”兜底 ---------------- */
+
+check('claim 识别：真声称 / 否认 / 疑问', function () {
+  assert(C.claimedDrawn('点动电路已画好：SF1 按钮直接串到 QA1 线圈') === true, '已画好');
+  assert(C.claimedDrawn('画完了，一共 6 个元件') === true, '画完了');
+  assert(C.claimedDrawn('我没能画出来：本轮没有任何元件') === false, '否认');
+  assert(C.claimedDrawn('还没画好，缺一个自锁') === false, '还没画好');
+  assert(C.claimedDrawn('画好了吗？') === false, '疑问');
+});
+
+check('claim 兜底：说画好但 changed=false → 明确说没画出来', function () {
+  const r = C.guardClaim({
+    reply: '点动电路已画好：SF1 按钮直接串到 QA1 线圈。',
+    changed: false
+  });
+  assert(/^我没能画出来/.test(r.reply), r.reply);
+  assert(/模型原话/.test(r.reply) && /点动电路已画好/.test(r.reply), r.reply);
+});
+
+check('claim 兜底：真的改了画布 / 没有声称 → 不改回复', function () {
+  const ok = { reply: '点动电路已画好。', changed: true };
+  const before = ok.reply;
+  C.guardClaim(ok);
+  assert(ok.reply === before, 'changed=true 不应改');
+
+  const plain = { reply: '需要我画一个点动吗？', changed: false };
+  const p = plain.reply;
+  C.guardClaim(plain);
+  assert(plain.reply === p, '没声称不应改');
+  assert(C.guardClaim(null) === null, 'null 应安全');
 });
 
 console.log('');
